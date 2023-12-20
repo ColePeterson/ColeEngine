@@ -1,4 +1,4 @@
-# My renderer playground
+# Renderer playground
 A 3D real-time renderer playground from scratch with C++ and OpenGL. (WIP)
 
 # Features:
