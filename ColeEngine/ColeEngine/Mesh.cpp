@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 
 #include "glew.h"
 #include "Mesh.h"
@@ -20,17 +21,38 @@ static glm::mat4 aiMatrix4x4ToGlm(const aiMatrix4x4& from)
 }
 
 
-MeshFBX::MeshFBX(std::string path, bool importMaterial)
-    : materialImported(importMaterial), materialData(nullptr)
+static void copyToImportFolder(std::string sourcePath, std::string destPath)
 {
-    
-    // Allocate structure for material data from FBX
-    if (materialImported)
+    // Open the source file for binary input
+    std::ifstream sourceFile(sourcePath, std::ios::binary);
+    if (!sourceFile)
     {
-        materialData = new MaterialData();
+        std::cerr << "Error opening source file." << std::endl;
     }
 
+    // Open the destination file for binary output
+    std::ofstream destinationFile(destPath, std::ios::binary);
+    if (!destinationFile)
+    {
+        std::cerr << "Error opening destination file." << std::endl;
+    }
 
+    // Copy contents from source to destination
+    destinationFile << sourceFile.rdbuf();
+
+    // Close the files
+    sourceFile.close();
+    destinationFile.close();
+}
+
+
+
+
+
+MeshFBX::MeshFBX(std::string path, bool importMaterial)
+    : materialImported(importMaterial)
+{
+    
     // Load the model with  ASSIMP
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs);
@@ -43,22 +65,25 @@ MeshFBX::MeshFBX(std::string path, bool importMaterial)
     {
         // Process the loaded model
         processNode(scene->mRootNode, scene, glm::mat4(1.0f));
-        nMeshes = scene->mNumMeshes;
-        
-        // Create a VAO for every mesh in model
-        VAO.resize(nMeshes);
-        glGenVertexArrays(vertices.size(), VAO.data());
 
-        // Create buffers for every mesh in the model
+        // Set number of meshes and number of materials asscoiated with model
+        nMeshes = scene->mNumMeshes;
+        nMaterials = scene->mNumMaterials;
+
+        //meshData.resize(nMeshes);
+
+        // For every mesh in scene, create VAO and VBO 
         for (int i = 0; i < nMeshes; i++)
         {
+            glGenVertexArrays(1, &meshData[i].VAO);
+
             // Bind VAO
-            glBindVertexArray(VAO[i]);
+            glBindVertexArray(meshData[i].VAO);
 
             GLuint VBO;
             glGenBuffers(1, &VBO);
             glBindBuffer(GL_ARRAY_BUFFER, VBO);
-            glBufferData(GL_ARRAY_BUFFER, vertices[i].size() * sizeof(Vertex), vertices[i].data(), GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, meshData[i].vertices.size() * sizeof(Vertex), meshData[i].vertices.data(), GL_STATIC_DRAW);
 
             // Specify the vertex attribute pointers
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
@@ -70,22 +95,24 @@ MeshFBX::MeshFBX(std::string path, bool importMaterial)
             glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
             glEnableVertexAttribArray(2);
 
-            GLuint EBO;
-            glGenBuffers(1, &EBO);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices[i].size() * sizeof(unsigned int), indices[i].data(), GL_STATIC_DRAW);
+            // Generate index buffer
+            glGenBuffers(1, &meshData[i].EBO);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, meshData[i].EBO);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, meshData[i].indices.size() * sizeof(unsigned int), meshData[i].indices.data(), GL_STATIC_DRAW);
 
             // Unbind VAO to prevent accidental changes
             glBindVertexArray(0);
         }
 
-       
-
+        // Create materials from FBX scene
         if (materialImported)
         {
+            std::cout << "Number of materials : " << scene->mNumMaterials << "\n\n";
+
+            loadMaterials(scene);
 
         }
-
+      
     }
 
 }
@@ -94,18 +121,21 @@ MeshFBX::MeshFBX(std::string path, bool importMaterial)
 
 void Mesh::drawVAO()
 {
+
     for (int i = 0; i < nMeshes; i++)
     {
         // Bind the VAO
-        glBindVertexArray(VAO[i]);
+        glBindVertexArray(meshData[i].VAO);
 
         // Draw the mesh
-        glDrawElements(GL_TRIANGLES, indices[i].size(), GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
 
         //glDrawArrays(GL_TRIANGLES, 0, vertices.size());
 
         glBindVertexArray(0);
     }
+    
+   
 }
 
 void MeshFBX::processNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
@@ -140,6 +170,7 @@ void MeshFBX::processMesh(const aiMesh* mesh, const aiScene* scene, const glm::m
     {
         Vertex vertex;
         vertex.position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+
         // Check if the mesh has normals
         if (mesh->HasNormals()) 
         {
@@ -184,212 +215,190 @@ void MeshFBX::processMesh(const aiMesh* mesh, const aiScene* scene, const glm::m
     }
 
 
-    vertices.push_back(vertexTemp);
-    indices.push_back(indexTemp);
+    // Create new mesh data object
+    meshData.push_back(MeshData());
+
+    // Copy the vertex and index data to it
+    meshData.back().vertices = std::vector<Vertex>(vertexTemp);
+    meshData.back().indices = std::vector<unsigned int>(indexTemp);
+
+    // Set mesh material index
+    meshData.back().materialIndex = mesh->mMaterialIndex;
+
+}
 
 
-    // Store FBX material data to make a material later
-    if (materialImported)
+
+void MeshFBX::loadMaterials(const aiScene* scene)
+{
+    // Create space for material data
+    matData.resize(nMaterials);
+
+    // For every material in FBX scene
+    for (unsigned int i = 0; i < nMaterials; i++)
     {
-        // Access the material for the current mesh
-        const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+        // The material
+        const aiMaterial* material = scene->mMaterials[i];
 
-        materialData->name = material->GetName().C_Str();
+        //std::cout << "Loading material: " << material->GetName().C_Str() << "\n\n";
 
-        std::cout << "Loaded mesh: " << mesh->mName.C_Str() << "\n";
-        std::cout << "Material index: " << mesh->mMaterialIndex << "\n";
-
+        //Set material name
+        matData[i].name = material->GetName().C_Str();
+        
+        
+       
         // Get diffuse texture paths
         if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0)
         {
-            processTexture(material, aiTextureType_DIFFUSE, "Diffuse");
+            processTexture(scene, material, aiTextureType_DIFFUSE, "Diffuse", i);
         }
 
         // Get normal texture paths
         if (material->GetTextureCount(aiTextureType_NORMALS) > 0)
         {
-            processTexture(material, aiTextureType_NORMALS, "Normals");
+            processTexture(scene, material, aiTextureType_NORMALS, "Normals", i);
         }
 
         // Get specular texture paths
         if (material->GetTextureCount(aiTextureType_SPECULAR) > 0)
         {
-            processTexture(material, aiTextureType_SPECULAR, "Specular");
+            processTexture(scene, material, aiTextureType_SPECULAR, "Specular", i);
         }
 
         // Get diffuse color
         aiColor3D diffuseColor(0.0f, 0.0f, 0.0f);
         material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor);
-        
-        materialData->diffuseColor = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+
+        matData[i].diffuseColor = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
 
         // Get specular color
         aiColor3D specularColor(0.0f, 0.0f, 0.0f);
         material->Get(AI_MATKEY_COLOR_SPECULAR, specularColor);
 
-        materialData->specularColor = glm::vec3(specularColor.r, specularColor.g, specularColor.b);
+        matData[i].specularColor = glm::vec3(specularColor.r, specularColor.g, specularColor.b);
 
 
         // Get shininess
         float shine = 0.0f;
         material->Get(AI_MATKEY_SHININESS, shine);
 
-        materialData->shininess = shine;
+        matData[i].shininess = shine;
 
         // Get reflectivity
         float reflect = 0.0f;
         material->Get(AI_MATKEY_REFLECTIVITY, reflect);
 
-        materialData->reflectivity = reflect;
+        matData[i].reflectivity = reflect;
+
     }
 
-    
 }
 
 
-void MeshFBX::processTexture(const aiMaterial* material, aiTextureType type, const std::string& typeName)
+
+void MeshFBX::processTexture(const aiScene* scene, const aiMaterial* material, aiTextureType type, const std::string& typeName, unsigned int index)
 {
     // Retrieve the number of textures of the given type
     unsigned int textureCount = material->GetTextureCount(type);
 
-    std::cout << typeName << " Textures (" << textureCount << "):" << std::endl;
-
-   
+    //std::cout << typeName << " Textures (" << textureCount << "):" << std::endl;
 
     for (unsigned int i = 0; i < textureCount; i++) 
     {
         aiString texturePath;
-        if (material->GetTexture(type, i, &texturePath) == AI_SUCCESS) 
-        {
-            std::cout << "  Texture Path: " << texturePath.C_Str() << std::endl;
+        
+        // Get path to texture
+        material->Get(AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE, 0), texturePath);
+        
+        // Attempt to get embedded texture
+        const aiTexture* texture = scene->GetEmbeddedTexture(texturePath.C_Str());
 
-            // Add texture path to list
+       // std::cout << "Texture " << i << ": " << texturePath.C_Str() << "\n";
+
+        // Texture is embedded
+        if (texture)
+        {
+            if(type == aiTextureType_DIFFUSE)
+                loadEmbeddedTexture(texture, type, index);
+            else if(type == aiTextureType_NORMALS)
+                loadEmbeddedTexture(texture, type, index);
+        }
+        else // Texture is on disk
+        {
+            
+            // Set texture path to list
             switch (type)
             {
             case aiTextureType_DIFFUSE:
-                materialData->diffuseTexturePath.push_back(texturePath.C_Str());
+                matData[index].diffuseTexture.texturePath = texturePath.C_Str();
+                matData[index].diffuseTexture.isEmbedded = false;
+                matData[index].hasDiffuse = true;
+
                 break;
             case aiTextureType_NORMALS:
-                materialData->normalTexturePath.push_back(texturePath.C_Str());
+                matData[index].normalTexture.texturePath = texturePath.C_Str();
+                matData[index].normalTexture.isEmbedded = false;
+                matData[index].hasNormals = true;
+
                 break;
             case aiTextureType_SPECULAR:
-                materialData->specularTexturePath.push_back(texturePath.C_Str());
+                matData[index].specularTexture.texturePath = texturePath.C_Str();
+                matData[index].specularTexture.isEmbedded = false;
+                matData[index].hasSpecular = true;
+
                 break;
             }
-            
-        }
-        else 
-        {
-            std::cerr << "Error retrieving texture path for " << typeName << " texture " << i << std::endl;
         }
     }
 }
 
-static void copyToImportFolder(std::string sourcePath, std::string destPath)
+
+
+// TODO: FIX EMBEDDED TEXTURES
+void MeshFBX::loadEmbeddedTexture(const aiTexture* texture, aiTextureType type, unsigned int index)
 {
-    // Open the source file for binary input
-    std::ifstream sourceFile(sourcePath, std::ios::binary);
-    if (!sourceFile) 
+    std::cout << "Loading embedded texture...\n";
+
+    unsigned int textureSize = 0;
+
+    // Compressed
+    if (texture->mHeight == 0)
     {
-        std::cerr << "Error opening source file." << std::endl;
+        textureSize = sizeof(aiTexel) * texture->mWidth;
+    }
+    else // Not compressed
+    {
+        textureSize = sizeof(aiTexel) * texture->mWidth * texture->mHeight;
     }
 
-    // Open the destination file for binary output
-    std::ofstream destinationFile(destPath, std::ios::binary);
-    if (!destinationFile) 
+    aiTexel* texels = static_cast<aiTexel*>(texture->pcData);
+
+    // Set texture path to list
+    switch (type)
     {
-        std::cerr << "Error opening destination file." << std::endl;
+    case aiTextureType_DIFFUSE:
+        matData[index].diffuseTexture.isEmbedded = true;
+        matData[index].hasDiffuse = true;
+
+        matData[index].diffuseTexture.embeddedData.data = new aiTexel[textureSize];
+
+        memcpy(matData[index].diffuseTexture.embeddedData.data, texels, textureSize / 4);
+
+        std::cout << "Found embedded diffuse\n";
+        break;
+    case aiTextureType_NORMALS:
+        matData[index].normalTexture.isEmbedded = true;
+        matData[index].hasNormals = true;
+
+        matData[index].normalTexture.embeddedData.data = new aiTexel[textureSize];
+
+        memcpy(matData[index].normalTexture.embeddedData.data, texels, textureSize);
+
+        std::cout << "Found embedded normals\n";
+        break;
+    case aiTextureType_SPECULAR:
+
+        matData[index].specularTexture.isEmbedded = true;
+        break;
     }
-
-    // Copy contents from source to destination
-    destinationFile << sourceFile.rdbuf();
-
-    // Close the files
-    sourceFile.close();
-    destinationFile.close();
-}
-
-Material* MeshFBX::loadMaterial()
-{
-    if (materialData)
-    {
-        // Create new material
-        Material* mat = new Material(materialData->name, nullptr);
-
-        // Set diffuse color
-        mat->vColor["diffuse"] = materialData->diffuseColor;
-
-        // Set specular color
-        mat->vColor["specular"] = materialData->specularColor;
-
-        // Set shininess
-        mat->vFloat["shininess"] = FloatParam(materialData->shininess, 0.0f, 1.0f);
-
-        // Set reflectivity
-        mat->vFloat["reflectivity"] = FloatParam(materialData->reflectivity, 0.0f, 1.0f);
-
-
-        // Load diffuse textures
-        for (unsigned int i = 0; i < materialData->diffuseTexturePath.size(); i++)
-        {
-            Texture* texture = new Texture();
-            if (texture)
-            {
-                // Load image
-                texture->load(materialData->diffuseTexturePath[i]);
-
-                // Attach texture to material
-                mat->vTexture["Diffuse " + std::to_string(i)] = texture;
-
-                // Copy image to project import folder
-                //copyToImportFolder(materialData->diffuseTexturePath[i],
-                    //"assets/mesh/imported fbx/" + materialData->name + " diffuse " + std::to_string(i) + ".png");
-            }
-        }
-
-        // Load normals textures
-        for (unsigned int i = 0; i < materialData->normalTexturePath.size(); i++)
-        {
-            Texture* texture = new Texture();
-            if (texture)
-            {
-                // Load image
-                texture->load(materialData->normalTexturePath[i]);
-
-                // Attach texture to material
-                mat->vTexture["Normal " + std::to_string(i)] = texture;
-
-                // Copy image to project import folder
-                //copyToImportFolder(materialData->diffuseTexturePath[i],
-                    //"assets/mesh/imported fbx/" + materialData->name + " normal " + std::to_string(i) + ".png");
-            }
-        }
-
-        // Load specular textures
-        for (unsigned int i = 0; i < materialData->specularTexturePath.size(); i++)
-        {
-            Texture* texture = new Texture();
-            if (texture)
-            {
-                // Load image
-                texture->load(materialData->specularTexturePath[i]);
-
-                // Attach texture to material
-                mat->vTexture["Specular " + std::to_string(i)] = texture;
-
-                // Copy image to project import folder
-               // copyToImportFolder(materialData->diffuseTexturePath[i],
-                   // "assets/mesh/imported fbx/" + materialData->name + " specular " + std::to_string(i) + ".png");
-            }
-        }
-
-        return mat;
-    }
-    else
-    {
-        std::cerr << "Could not import material fom FBX!\n";
-        return nullptr;
-    }
-
-    
 }

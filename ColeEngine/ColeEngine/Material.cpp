@@ -5,7 +5,8 @@
 #include <sstream>
 
 Material::Material(std::string _name, ShaderProgram* _shader)
-	: name(_name), shader(_shader), vFloat(0), vInt(0), vVec3(0), vTexture(0), vColor(0)
+	: name(_name), shader(_shader), vFloat(0), vInt(0), vVec3(0), vTexture(0), vColor(0),
+	hasDiffuseTexture(false), hasNormalsTexture(false), hasSpecularTexture(false)
 {
 	
 	

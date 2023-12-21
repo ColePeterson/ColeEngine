@@ -28,6 +28,8 @@ struct SceneLighting
 struct ComponentTab
 {
 	Material* selectedMat = nullptr;
+
+	unsigned int selectedSlot = 0;
 };
 
 class UI
@@ -51,7 +53,7 @@ private:
 	std::string selectedMaterialName = "Material";
 	SceneBrowser sceneBrowser;
 	SceneLighting sceneLighting;
-	//ComponentTab componentTab;
+	ComponentTab componentTab;
 	
 };
 

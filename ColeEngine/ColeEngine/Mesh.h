@@ -6,6 +6,7 @@
 #include "transform.h"
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 #include "Material.h"
 
@@ -15,6 +16,8 @@
 
 class Material;
 
+
+// A single vertex
 struct Vertex
 {
     glm::vec3 position;
@@ -22,13 +25,33 @@ struct Vertex
     glm::vec2 texCoords;
 };
 
+struct EmbeddedTextureInfo
+{
+    aiTexel* data = nullptr;
+    unsigned int width, height;
+};
+
+struct TextureInfoFBX
+{
+    std::string texturePath;
+
+    EmbeddedTextureInfo embeddedData;
+
+    bool isEmbedded = false;
+};
+
+// Per material data
 struct MaterialData
 {
     std::string name;
 
-    std::vector<std::string> diffuseTexturePath;
-    std::vector<std::string> specularTexturePath;
-    std::vector<std::string> normalTexturePath;
+    bool hasDiffuse = false;
+    bool hasNormals = false;
+    bool hasSpecular = false;
+
+    TextureInfoFBX diffuseTexture;
+    TextureInfoFBX specularTexture;
+    TextureInfoFBX normalTexture;
 
     float shininess;
     float reflectivity;
@@ -38,19 +61,36 @@ struct MaterialData
 };
 
 
+// Per mesh data
+struct MeshData
+{
+    unsigned int VAO, EBO;
+
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+
+    unsigned int materialIndex = 0;
+};
+
+
+
+// Contains all mesh VAO's and vertices and materials of an FBX scene
 class Mesh
 {
 public:
     Mesh() {};
     virtual ~Mesh() {}
 
-    std::vector<unsigned int> VAO;
-    std::vector<std::vector<Vertex>> vertices;
-    std::vector < std::vector<unsigned int>> indices;
-
-    unsigned int nMeshes;
-
     virtual void drawVAO();
+
+    // Data for every mesh in FBX scene
+    std::vector<MeshData> meshData;
+
+    // Data for every material in FBX scene
+    std::vector<MaterialData> matData;
+
+    // Number of meshes and materials in scene
+    unsigned int nMeshes, nMaterials;
 };
 
 
@@ -59,18 +99,22 @@ class MeshFBX : public Mesh
 public:
     MeshFBX(std::string path, bool importMaterial);
 
-    Material* loadMaterial();
-
 private:
     void processNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
     void processMesh(const aiMesh* mesh, const aiScene* scene, const glm::mat4& parentTransform);
-    void processTexture(const aiMaterial* material, aiTextureType type, const std::string& typeName);
+    void processTexture(const aiScene* scene, const aiMaterial* material, aiTextureType type, const std::string& typeName, unsigned int index);
 
-    MaterialData* materialData;
+    void loadEmbeddedTexture(const aiTexture* texture, aiTextureType type, unsigned int index);
+
+    void loadMaterials(const aiScene* scene);
 
     bool materialImported;
-
-    
 };
+
+
+
+
+
+
 
 #endif

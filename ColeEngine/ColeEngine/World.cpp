@@ -1,10 +1,12 @@
 #include "World.h"
 #include "Shapes.h"
-#include "Mesh.h"
+
+#define RAPIDJSON_HAS_STDSTRING 1
+
 #include "Texture.h"
 #include "Material.h"
 #include "Logging.h"
-
+#include "Serialization.h"
 
 #include <algorithm>
 #include <glm/ext.hpp>
@@ -18,6 +20,134 @@ World::World(Platform& _platform, ResourceManager& _resource)
 
 World::~World()
 {
+
+}
+
+
+Mesh* World::importFBX(std::string path)
+{
+    // Load FBX mesh and material data
+    Mesh* mesh = new MeshFBX(path, true);
+
+    if (mesh)
+    {
+        // Number of materials in the FBX
+        unsigned int nMaterials = mesh->nMaterials;
+
+        // Create a material for every unique material in loaded FBX
+        for (unsigned int i = 0; i < nMaterials; i++)
+        {
+            // Create new material
+            resource.createNewMaterial(mesh->matData[i].name, resource.shader("geometry_default"));
+
+            Material* mat = resource.getMaterial(mesh->matData[i].name);
+
+            // Set material parameters
+            mat->vColor["diffuse"] = mesh->matData[i].diffuseColor; // Diffuse color
+            mat->vColor["specular"] = mesh->matData[i].specularColor; // Specular color
+
+            // Texture scale
+            mat->vVec2["textureScale"] = Vec2Param(glm::vec2(5.0f, 5.0f), glm::vec2(0.0f, 0.0f), glm::vec2(20.0f, 20.0f));
+
+            // Shininess
+            mat->vFloat["shininess"] = FloatParam(mesh->matData[i].shininess, 0.2f, 500.0f);
+
+            // Reflectivity
+            mat->vFloat["reflectivity"] = FloatParam(mesh->matData[i].shininess, 0.2f, 500.0f);
+
+            // Normal strength
+            mat->vFloat["normalStrength"] = FloatParam(20.1f, 0.0f, 60.5f);
+
+
+            mat->hasDiffuseTexture = false;
+            mat->vTexture["textureDiffuse"] = resource.getNullTexture();
+
+            mat->hasNormalsTexture = false;
+            mat->vTexture["textureNormal"] = resource.getNullTexture();
+
+            mat->hasSpecularTexture = false;
+            mat->vTexture["textureSpecular"] = resource.getNullTexture();
+
+
+            // Attempt to load diffuse texture if one exists
+            if (mesh->matData[i].hasDiffuse)
+            {
+                // Texture is not embedded, load from disk
+                if (!mesh->matData[i].diffuseTexture.isEmbedded)
+                {
+                    mat->hasDiffuseTexture = true;
+                    mat->vTexture["textureDiffuse"] = resource.getTexture(mesh->matData[i].diffuseTexture.texturePath);
+                }
+                else  //Texture is embedded, load from raw data
+                {
+                    mat->hasDiffuseTexture = true;
+
+                    Texture* texture = new Texture();
+                    texture->loadEmbedded(
+                        mesh->matData[i].diffuseTexture.embeddedData.data,
+                        mesh->matData[i].diffuseTexture.embeddedData.width,
+                        mesh->matData[i].diffuseTexture.embeddedData.height
+                    );
+
+                    std::string name = mesh->matData[i].name + " embedded diffuse";
+                    resource.addTexture(name, texture);
+
+                    mat->vTexture["textureDiffuse"] = resource.getTexture(name);
+                }
+                
+            }
+
+
+            // Attempt to load normals texture if one exists
+            if (mesh->matData[i].hasNormals)
+            {
+                // Texture is not embedded, load from disk
+                if (!mesh->matData[i].normalTexture.isEmbedded)
+                {
+                    mat->hasNormalsTexture = true;
+                    mat->vTexture["textureNormal"] = resource.getTexture(mesh->matData[i].normalTexture.texturePath);
+                }
+                else if (mesh->matData[i].normalTexture.isEmbedded) //Texture is embedded, load from raw data
+                {
+                    mat->hasDiffuseTexture = true;
+
+                    Texture* texture = new Texture();
+                    texture->loadEmbedded(
+                        mesh->matData[i].normalTexture.embeddedData.data,
+                        mesh->matData[i].normalTexture.embeddedData.width,
+                        mesh->matData[i].normalTexture.embeddedData.height
+                    );
+
+                    std::string name = mesh->matData[i].name + " embedded normals";
+                    resource.addTexture(name, texture);
+
+                    mat->vTexture["textureNormal"] = resource.getTexture(name);
+                }
+                
+            }
+
+            // Attempt to load specular texture if one exists
+            if (mesh->matData[i].hasSpecular)
+            {
+                // Texture is not embedded, load from disk
+                if (!mesh->matData[i].specularTexture.isEmbedded)
+                {
+                    mat->hasSpecularTexture = true;
+                    mat->vTexture["textureSpecular"] = resource.getTexture(mesh->matData[i].normalTexture.texturePath);
+                }
+
+            }
+            
+        }
+
+        return mesh;
+    }
+    else
+    {
+        Log::error("Failed to import FBX!");
+
+        return nullptr;
+    }
 
 }
 
@@ -40,51 +170,26 @@ void World::initWorld()
     triangleCount = 0;
     bvh = nullptr;
 
-    // Make VAO's for basic shapes
-    //Shape* sphereShape = new Sphere(24);
-   
-    Mesh* sponzaMesh = new MeshFBX("assets/mesh/playground.fbx", false);
-    Mesh* monkeyMesh = new MeshFBX("assets/mesh/monkey.fbx", false);
-   // Mesh* matTestMesh = new MeshFBX("assets/mesh/diffuseCube.fbx", true);
-   // Mesh* skyMesh = new MeshFBX("assets/mesh/skySphere.fbx", false);
 
-    //MeshFBX* temp = reinterpret_cast<MeshFBX*>(matTestMesh);
-
-    
     // Load all shaders
     resource.loadShader("geometry_default", "geo_pass.frag", "geo_pass.vert");
     resource.loadShader("lighting", "lighting.frag", "lighting.vert");
     resource.loadShader("point_shadows_default", "PointLightShadow.frag", "PointLightShadow.vert", "PointLightShadow.geom");
-  //  resource.loadShader("shadows_default", "shadow.frag", "shadow.vert");
+    resource.loadShader("post_process_default", "PostProcess.frag", "PostProcess.vert");
+    //  resource.loadShader("shadows_default", "shadow.frag", "shadow.vert");
     //resource.loadShader("skydome", "skydome.frag", "skydome.vert");
+    
 
-    // Create sky material
-    //resource.createNewMaterial("mat_sky", resource.shader("skydome"));
-    //resource.getMaterial("mat_sky")->vTexture["textureSky"] = resource.getTexture("assets/textures/hdri/kloofendal_43d_clear_2k.hdr"); // Normals texture
+    // Make VAO's for basic shapes
+    //Shape* sphereShape = new Sphere(24);
+   
+    Mesh* matTestMesh = importFBX("assets/mesh/guitar_unpacked.fbx");
+    Mesh* sponzaMesh = importFBX("assets/mesh/playground.fbx");
+    Mesh* skyMesh = importFBX("assets/mesh/skySphere.fbx");
 
     // Set sky texture
     resource.setSkyTexture(resource.getTexture("assets/textures/hdri/kloofendal_43d_clear_2k.hdr"));
 
-    // FBX material import test
-    //Material* importMat = temp->loadMaterial();
-    //importMat->setShader(resource.shader("geometry_default"));
-
-
-    /*
-    // Create grass material
-    resource.createNewMaterial("mat_grass", resource.shader("geometry_default"));
-
-    // Create grass material's parameters
-    resource.getMaterial("mat_grass")->vTexture["textureDiffuse"] = resource.getTexture("assets/textures/grass_1.png"); // Diffuse texture
-    resource.getMaterial("mat_grass")->vTexture["textureNormal"] = resource.getTexture("assets/textures/grass_1_NRM.png"); // Normals texture
-    resource.getMaterial("mat_grass")->vVec2["textureScale"] = Vec2Param(glm::vec2(40.0f, 40.0f), glm::vec2(0.0f, 0.0f), glm::vec2(20.0f, 20.0f));
-    resource.getMaterial("mat_grass")->vFloat["shininess"] = FloatParam(120.0f, 0.2f, 300.0f);
-    resource.getMaterial("mat_grass")->vFloat["normalStrength"] = FloatParam(0.1f, 0.0f, 0.5f);
-    resource.getMaterial("mat_grass")->vColor["diffuse"] = Color3(1.0f, 1.0f, 1.0f); // Diffuse color
-    resource.getMaterial("mat_grass")->vColor["specular"] = Color3(1.0f, 1.0f, 1.0f); // Specular color
-    */
-
-    
     // Create concrete material
     resource.createNewMaterial("mat_concrete", resource.shader("geometry_default"));
 
@@ -93,25 +198,12 @@ void World::initWorld()
     resource.getMaterial("mat_concrete")->vTexture["textureNormal"] = resource.getTexture("assets/textures/concrete_1_NRM.png");
     resource.getMaterial("mat_concrete")->vVec2["textureScale"] = Vec2Param(glm::vec2(5.0f, 5.0f), glm::vec2(0.0f, 0.0f), glm::vec2(20.0f, 20.0f));
     resource.getMaterial("mat_concrete")->vFloat["shininess"] = FloatParam(120.0f, 0.2f, 500.0f);
-    resource.getMaterial("mat_concrete")->vFloat["normalStrength"] = FloatParam(0.1f, 0.0f, 0.5f);
+    resource.getMaterial("mat_concrete")->vFloat["normalStrength"] = FloatParam(48.0f, 0.0f, 60.5f);
     resource.getMaterial("mat_concrete")->vColor["diffuse"] = Color3(1.0f, 1.0f, 1.0f); // Diffuse color
     resource.getMaterial("mat_concrete")->vColor["specular"] = Color3(1.0f, 1.0f, 1.0f); // Specular color
+    resource.getMaterial("mat_concrete")->hasDiffuseTexture = true;
+    resource.getMaterial("mat_concrete")->hasNormalsTexture = true;
 
-
-
-    // Create brick material
-    resource.createNewMaterial("mat_brick", resource.shader("geometry_default"));
-
-    // Create brick material's parameters
-    resource.getMaterial("mat_brick")->vTexture["textureDiffuse"] = resource.getTexture("assets/textures/brick_1.png");
-    resource.getMaterial("mat_brick")->vTexture["textureNormal"] = resource.getTexture("assets/textures/brick_1_NRM.png");
-    resource.getMaterial("mat_brick")->vVec2["textureScale"] = Vec2Param(glm::vec2(3.0f, 3.0f), glm::vec2(0.0f, 0.0f), glm::vec2(20.0f, 20.0f));
-    resource.getMaterial("mat_brick")->vFloat["shininess"] = FloatParam(120.0f, 0.2f, 500.0f);
-    resource.getMaterial("mat_brick")->vFloat["normalStrength"] = FloatParam(40.0f, 0.0f, 80.0f);
-    resource.getMaterial("mat_brick")->vColor["diffuse"] = Color3(1.0f, 1.0f, 1.0f); // Diffuse color
-    resource.getMaterial("mat_brick")->vColor["specular"] = Color3(1.0f, 1.0f, 1.0f); // Specular color
-    
-    
 
     // Create point light component 2
     PointLightComponent* plComp2 = new PointLightComponent();
@@ -124,7 +216,7 @@ void World::initWorld()
 
     // Create point light transform component 2
     TransformComponent* plTrn2 = new TransformComponent();
-    plTrn2->pos = { 9.0f, -2.0f, 4.0f };
+    plTrn2->pos = { 1.0f, -19.0f, 4.0f };
     plTrn2->scl = { 1.0f, 1.0f, 1.0f };
 
     // Create point light 2
@@ -138,7 +230,7 @@ void World::initWorld()
 
     // Create point light component 2
     PointLightComponent* plComp1 = new PointLightComponent();
-    plComp1->color = { 0.1f, 1.0f, 0.1f };
+    plComp1->color = { 0.8f, 0.7f, 0.4f };
     plComp1->resolution = { 1024, 1024 };
     plComp1->strength = 60.0f;
     plComp1->falloff = 2.0f;
@@ -147,7 +239,7 @@ void World::initWorld()
 
     // Create point light transform component 2
     TransformComponent* plTrn1 = new TransformComponent();
-    plTrn1->pos = { -9.0f, -2.0f, 4.0f };
+    plTrn1->pos = { -4.0f, 20.0f, 4.0f };
     plTrn1->scl = { 1.0f, 1.0f, 1.0f };
 
     // Create point light 2
@@ -157,6 +249,9 @@ void World::initWorld()
     light1->addComponent(plTrn1);
 
     pointLights.push_back(light1);
+
+
+
 
     // Create plane entity
     Entity* terrainEntity = new Entity("Sponza");
@@ -170,8 +265,8 @@ void World::initWorld()
     RenderComponent* rndrSponzaTerrain = new RenderComponent();
     rndrSponzaTerrain->mesh = sponzaMesh;
 
-    rndrSponzaTerrain->setMaterial(resource.getMaterial("mat_brick"), terrainEntity);
-
+    rndrSponzaTerrain->setMaterial(resource.getMaterial("mat_concrete"), terrainEntity, 0);
+    rndrSponzaTerrain->setMaterialsFromMesh(&resource);
 
     // Add components to plane entity
     terrainEntity->addComponent(trTerrain);
@@ -179,6 +274,11 @@ void World::initWorld()
 
     // Add plane to world
     entities.push_back(terrainEntity);
+    
+
+
+
+    //Serialization::Serialize(resource.getMaterial("mat_concrete"), ObjectType::MATERIAL);
     
 
 
@@ -194,29 +294,32 @@ void World::initWorld()
 
     // Renderer for skybox entity
     RenderComponent* rndrSky = new RenderComponent();
-    //rndrSky->mesh = skyMesh;
-    rndrSky->setMaterial(resource.getMaterial("mat_brick"), skyBox);
+    rndrSky->mesh = skyMesh;
+    rndrSky->setMaterial(resource.getMaterial("mat_concrete"), skyBox, 0);
 
     // Add components to skybox entity
     skyBox->addComponent(rndrSky);
     skyBox->addComponent(trSky);
 
     // Add skybox to world
-    //entities.push_back(skyBox);
+    entities.push_back(skyBox);
     
+
 
 
     // Monkey entity
     Entity* monk = new Entity("monkey");
 
     TransformComponent* trMonk = new TransformComponent();
-    trMonk->pos = glm::vec3(-5.0f, 6.0f, 2.0f);
-    //trMonk->scl = glm::vec3(0.01f, 0.01f, 0.01f);
-    trMonk->scl = glm::vec3(1.0f, 1.0f, 1.0f);
-    RenderComponent* rndrMonk = new RenderComponent();
-    rndrMonk->mesh = monkeyMesh;
+    trMonk->pos = glm::vec3(0.0f, 14.0f, 0.0f);
+    trMonk->scl = glm::vec3(8.0f, 8.0f, 8.0f);
 
-    rndrMonk->setMaterial(resource.getMaterial("mat_concrete"), monk);
+    RenderComponent* rndrMonk = new RenderComponent();
+    rndrMonk->mesh = matTestMesh;
+
+    rndrMonk->setMaterialsFromMesh(&resource);
+
+   // rndrMonk->setMaterial(resource.getMaterial("mat_concrete"), monk);
     //rndrMonk->setMaterial(importMat, monk);
 
     monk->addComponent(trMonk);
@@ -247,10 +350,13 @@ void World::initWorld()
 
 
    // Log::info("Creating AABB list...");
-    createAABBlist();
+   // createAABBlist();
+    //createAABBlist2();
+
+   // std::cout << "Number of triangle AABB's: " << objList.size() << "\n\n";
 
    // Log::info("Creating BVH tree...");
-    //bvh = createBVH(objList, 0);
+   // bvh = createBVH(objList, 0);
 
 }
 
@@ -297,8 +403,11 @@ void World::createAABBlist()
         glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f};
         glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
 
-        std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
-        std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
+        //std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
+        //std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
+        
+        std::vector<std::vector<Vertex>> vertices;
+        std::vector < std::vector<unsigned int>> indices;
 
         for (int i = 0; i < vertices.size(); i++)
         {
@@ -331,8 +440,101 @@ void World::createAABBlist()
 
 }
 
+void World::createAABBlist2()
+{
+    objList.clear();
+
+    triangleCount = 0;
+    for (Entity* e : entities)
+    {
+        TransformComponent* transformComp = e->getComponent<TransformComponent>();
+        RenderComponent* renderComp = e->getComponent<RenderComponent>();
+        PlayerComponent* playerComp = e->getComponent<PlayerComponent>();
+
+        if (!renderComp)
+            continue;
 
 
+        Mesh* mesh = renderComp->mesh;
+
+
+        glm::mat4 modelTr = glm::mat4(1.0f);
+        modelTr = glm::translate(modelTr, transformComp->pos);
+        modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
+        modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
+
+        glm::vec4 minPoint = { 9999.0f, 9999.0f, 9999.0f, 1.0f };
+        glm::vec4 maxPoint = { -9999.0f, -9999.0f, -9999.0f, 1.0f };
+        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
+
+      
+
+        // For every sub-mesh on mesh
+        for (unsigned int i = 0; i < mesh->nMeshes; i++)
+        {
+            std::vector<Vertex>& vertices = mesh->meshData[i].vertices;
+            std::vector<unsigned int>& indices = mesh->meshData[i].indices;
+
+            // For triangle on mesh
+            for (unsigned int j = 0; j < mesh->meshData[i].indices.size(); j+=3)
+            {
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->meshData[i].EBO);
+
+                // Retrieve the indices from the index buffer
+                //unsigned int* indices = new unsigned int[3];
+                //glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(unsigned int) * 3, indices);
+
+                // Get points of triangle in world space
+                //glm::vec4 A = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[0]].position, 1.0f);
+                //glm::vec4 B = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[1]].position, 1.0f);
+                //glm::vec4 C = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[2]].position, 1.0f);
+
+
+                unsigned int index0 = mesh->meshData[i].indices[j];
+                unsigned int index1 = mesh->meshData[i].indices[j+1];
+                unsigned int index2 = mesh->meshData[i].indices[j+2];
+
+                // Get points of triangle in world space
+                glm::vec4 A = modelTr * glm::vec4(mesh->meshData[i].vertices[index0].position, 1.0f);
+                glm::vec4 B = modelTr * glm::vec4(mesh->meshData[i].vertices[index1].position, 1.0f);
+                glm::vec4 C = modelTr * glm::vec4(mesh->meshData[i].vertices[index2].position, 1.0f);
+
+
+                // Get min point
+                minPoint = glm::min(A, minPoint);
+                minPoint = glm::min(B, minPoint);
+                minPoint = glm::min(C, minPoint);
+
+                // Get max point
+                maxPoint = glm::max(A, maxPoint);
+                maxPoint = glm::max(B, maxPoint);
+                maxPoint = glm::max(C, maxPoint);
+
+                // Set dimensions
+                dim.x = glm::abs(maxPoint.x - minPoint.x);
+                dim.y = glm::abs(maxPoint.y - minPoint.y);
+                dim.z = glm::abs(maxPoint.z - minPoint.z);
+
+                // Set center point
+                centerPoint = glm::vec3(maxPoint) - dim * 0.5f;
+
+
+                // Create new AABB
+                Box3D* box = new Box3D(centerPoint, dim * 0.5f, reinterpret_cast<void*>(e));
+
+                // Add to list of triangle AABB's
+                objList.push_back(box);
+
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            }
+
+        }
+
+       
+    }
+
+}
 
 static Box3D* computeBV(std::vector<Box3D*>& objects)
 {
@@ -367,6 +569,60 @@ static Box3D* computeBV(std::vector<Box3D*>& objects)
         return nullptr;
 
 }
+
+
+void World::createBvhObjects()
+{
+
+    for (Entity* e : entities)
+    {
+        TransformComponent* transformComp = e->getComponent<TransformComponent>();
+        RenderComponent* renderComp = e->getComponent<RenderComponent>();
+
+        if (!renderComp)
+            continue;
+
+        glm::mat4 modelTr = glm::mat4(1.0f);
+        modelTr = glm::translate(modelTr, transformComp->pos);
+        modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
+        modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
+
+        glm::vec3 minPoint = { 9999.0f, 9999.0f, 9999.0f };
+        glm::vec3 maxPoint = { -9999.0f, -9999.0f, -9999.0f };
+        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
+
+        //std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
+        //std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
+
+        std::vector<std::vector<Vertex>> vertices;
+        std::vector < std::vector<unsigned int>> indices;
+
+        for (int i = 0; i < vertices.size(); i++)
+        {
+            for (int j = 0; j < vertices[i].size(); j++)
+            {
+                glm::vec3& p = vertices[i][j].position;
+                glm::vec4 p4 = modelTr * glm::vec4(p.x, p.y, p.z, 1.0f);
+
+                minPoint = glm::min(glm::vec3(p4.x, p4.y, p4.z), minPoint);
+                maxPoint = glm::max(glm::vec3(p4.x, p4.y, p4.z), maxPoint);
+            }
+        }
+
+        dim.x = glm::abs(maxPoint.x - minPoint.x);
+        dim.y = glm::abs(maxPoint.y - minPoint.y);
+        dim.z = glm::abs(maxPoint.z - minPoint.z);
+
+        centerPoint = maxPoint - dim * 0.5f;
+
+        Box3D* box = new Box3D(centerPoint, dim * 0.5f, reinterpret_cast<void*>(e));
+    }
+
+       
+
+}
+
 
 
 // Sorts the list of objects based on the center point of the aabb olong the axis of greatest spread (the greatest dimension of the aabb)

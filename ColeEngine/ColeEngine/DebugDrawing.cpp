@@ -86,8 +86,11 @@ glm::mat4 DebugAABB::makeTransformFromEntity(Entity* entity)
             glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
             glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
 
-            std::vector<std::vector<Vertex>>& vertices = rc->mesh->vertices;
-            std::vector < std::vector<unsigned int>>& indices = rc->mesh->indices;
+            //std::vector<std::vector<Vertex>>& vertices = rc->mesh->vertices;
+            //std::vector < std::vector<unsigned int>>& indices = rc->mesh->indices;
+
+            std::vector<std::vector<Vertex>> vertices;
+            std::vector < std::vector<unsigned int>> indices;
 
             for (int i = 0; i < vertices.size(); i++)
             {

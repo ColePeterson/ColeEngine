@@ -107,6 +107,7 @@ public:
 
 	std::vector<Entity*> entityRefs; // References to all entities using this material
 
+	bool hasDiffuseTexture, hasNormalsTexture, hasSpecularTexture;
 private:
 
 	// Shader that the material uses

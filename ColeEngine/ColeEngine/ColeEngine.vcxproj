@@ -96,7 +96,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)external\imgui;$(ProjectDir)libs\glew-2.1.0\include\GL;$(ProjectDir)libs\glm;$(ProjectDir)libs\glm\glm;$(ProjectDir)external\assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)external\imgui;$(ProjectDir)libs\glew-2.1.0\include\GL;$(ProjectDir)libs\glm;$(ProjectDir)libs\glm\glm;$(ProjectDir)external\assimp\include;$(ProjectDir)external\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -130,7 +130,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)external\imgui;$(ProjectDir)libs\glew-2.1.0\include\GL;$(ProjectDir)libs\glm;$(ProjectDir)libs\glm\glm;$(ProjectDir)external\assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)external\imgui;$(ProjectDir)libs\glew-2.1.0\include\GL;$(ProjectDir)libs\glm;$(ProjectDir)libs\glm\glm;$(ProjectDir)external\assimp\include;$(ProjectDir)external\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -172,6 +172,7 @@
     <ClCompile Include="external\imgui\imgui_impl_glfw.cpp" />
     <ClCompile Include="external\imgui\imgui_impl_opengl3.cpp" />
     <ClCompile Include="FBO.cpp" />
+    <ClCompile Include="FrameBuffer.cpp" />
     <ClCompile Include="GBuffer.cpp" />
     <ClCompile Include="geomlib-advanced.cpp" />
     <ClCompile Include="Logging.cpp" />
@@ -184,6 +185,7 @@
     <ClCompile Include="RenderPipeline.cpp" />
     <ClCompile Include="RenderSystem.cpp" />
     <ClCompile Include="ResourceManager.cpp" />
+    <ClCompile Include="Serialization.cpp" />
     <ClCompile Include="Shader.cpp" />
     <ClCompile Include="Shapes.cpp" />
     <ClCompile Include="Texture.cpp" />
@@ -208,6 +210,7 @@
     <ClInclude Include="external\imgui\imgui_impl_opengl3.h" />
     <ClInclude Include="external\imgui\imgui_impl_opengl3_loader.h" />
     <ClInclude Include="FBO.h" />
+    <ClInclude Include="FrameBuffer.h" />
     <ClInclude Include="GBuffer.h" />
     <ClInclude Include="geomlib.h" />
     <ClInclude Include="Logging.h" />
@@ -219,6 +222,7 @@
     <ClInclude Include="RenderPipeline.h" />
     <ClInclude Include="RenderSystem.h" />
     <ClInclude Include="ResourceManager.h" />
+    <ClInclude Include="Serialization.h" />
     <ClInclude Include="Shader.h" />
     <ClInclude Include="Shapes.h" />
     <ClInclude Include="stb_image.h" />

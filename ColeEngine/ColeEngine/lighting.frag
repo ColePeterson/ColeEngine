@@ -195,7 +195,7 @@ vec3 lighting_phong(vec3 worldPos, vec3 normal, vec3 albedo, vec4 specular)
     vec3 ld = normalize(sunPos);
     vec3 halfwayDir = normalize(ld + viewDir);
 
-    float dif = max(dot(n, ld), 0.0);
+    float dif = max(dot(n, ld), 0.1);
     float spec = pow(max(dot(n, halfwayDir), 0.0), specular.w);
 
     return (ambientColor + (dif + spec*specular.rgb)) * albedo; 
@@ -215,6 +215,7 @@ void main()
     if(basicShading)
     {
         col = lighting_phong(worldPos.xyz, Normal, Albedo, Specular);
+       // col = Albedo;
     }
     else
     {

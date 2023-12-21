@@ -10,31 +10,39 @@ class Material;
 
 
 
-void RenderComponent::setMaterial(Material* _material, Entity* _entity)
+void RenderComponent::setMaterial(Material* _material, Entity* _entity, unsigned int index)
 {
 
-
-	// Init material on render component
-	if (material == nullptr && _material != nullptr)
+	if (_material)
 	{
-		material = _material;
-		material->addReference(_entity);
+		//materials.clear();
+		//materials.push_back(_material);
 
-		return;
+		if (materials.size() == 0)
+		{
+			materials.push_back(_material);
+		}
+		else
+		{
+			if (index < materials.size())
+			{
+				materials[index] = _material;
+			}
+		}
 	}
 
-	// Setting a new material that's different from the previous
-	if (material != _material)
+}
+
+void RenderComponent::setMaterialsFromMesh(ResourceManager* resource)
+{
+	if (mesh && resource)
 	{
-		// Remove entity from previous material's referernces
-		material->removeReference(_entity);
+		unsigned int nMaterials = mesh->nMaterials;
 
-		// Set material to new material
-		material = _material;
-
-		// Add entity to new material references
-		material->addReference(_entity);
-
+		// Fill material slots with references to the materials in model
+		for (unsigned int i = 0; i < nMaterials; i++)
+		{
+			materials.push_back(resource->getMaterial(mesh->matData[i].name));
+		}
 	}
-	
 }

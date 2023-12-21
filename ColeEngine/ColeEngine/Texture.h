@@ -4,10 +4,14 @@
 #define _TEXTURE
 
 
-
+#include <vector>
 #include <iostream>
 #include <string>
 #include "glew.h"
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 class Texture
 {
@@ -23,6 +27,7 @@ public:
 	unsigned int get() { return texture; }
 
 	bool load(std::string path);
+	bool loadEmbedded(aiTexel* textureData, unsigned int _width, unsigned int _height);
 	void unload();
 
 	void bind();

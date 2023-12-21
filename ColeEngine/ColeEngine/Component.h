@@ -14,6 +14,8 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include "Material.h"
+#include "ResourceManager.h"
+
 #include "FBO.h"
 #include"geomlib.h"
 class Mesh;
@@ -37,7 +39,7 @@ enum class RenderID
 class Material;
 class Entity;
 class ShaderProgram;
-
+class ResourceManager;
 
 #define COMPONENT_COMMON_IMPL( classname )                        \
   constexpr static ComponentType TYPE = ComponentType::classname; \
@@ -102,10 +104,14 @@ public:
 	Shape* mesh2 = nullptr;
 	Mesh* mesh = nullptr;
 
-	// Object material
-	Material* material = nullptr;
+	// Object material slots
+	std::vector<Material*> materials;
 
-	void setMaterial(Material* _material, Entity* _entity);
+	// Set a slot's material
+	void setMaterial(Material* _material, Entity* _entity, unsigned int index);
+	
+	// Fill material slots with materials made from FBX import
+	void setMaterialsFromMesh(ResourceManager* resource);
 };
 
 

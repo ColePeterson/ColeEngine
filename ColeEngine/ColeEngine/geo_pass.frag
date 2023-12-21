@@ -30,12 +30,16 @@ uniform Color3 diffuse;
 uniform Color3 specular;
 
 uniform float shininess;
+uniform float reflectivity;
 uniform float normalStrength;
 
 
 
 //WORLD
 uniform float time;
+
+uniform bool hasDiffuseTexture;
+uniform bool hasNormalsTexture;
 //WORLD_END
 
 
@@ -56,9 +60,25 @@ void main()
 
     gVertex = vec4(worldPos, depth);
     
-    gNormal = applyNormalMap(normalVec, uv);
+    if(hasNormalsTexture)
+    {
+        gNormal = applyNormalMap(normalVec, uv);
+    }
+    else
+    {
+        gNormal = normalVec;
+    }
 
-    gAlbedo = diffuse.c * texture(textureDiffuse, uv).rgb;
+
+    if(hasDiffuseTexture)
+    {
+        gAlbedo = diffuse.c * texture(textureDiffuse, uv).rgb;
+    }
+    else
+    {
+        gAlbedo = diffuse.c;
+    }
+   // gAlbedo = vec3(0., 1., 0.);
     
     gSpecular = vec4(specular.c, shininess);
 

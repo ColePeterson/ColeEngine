@@ -44,6 +44,9 @@ RenderSystem::RenderSystem(Engine& _engine)
 	// Create pipeline for point light shadows
 	pointLightPass = new RenderPipeline("Point light shadow pipeline", engine.Resource().shader("point_shadows_default"));
 
+	// Create pipeline for post processing
+	postProcessPass = new RenderPipeline("Post process pipeline", engine.Resource().shader("post_process_default"));
+
 	// Load debug shader
 	engine.Resource().loadShader("debug", "debug.frag", "debug.vert");
 	debugShader = engine.Resource().shader("debug");
@@ -58,6 +61,10 @@ RenderSystem::RenderSystem(Engine& _engine)
 
 	// Create G-Buffer for deffered shadings
 	gBuffer = new GBuffer(engine.getPlatform().width, engine.getPlatform().height);
+
+	// Create framebuffer for rendering scene color
+	sceneColorFBO = new FrameBuffer(engine.getPlatform().width, engine.getPlatform().height);
+	//sceneColorFBO->addTexture("scene color");
 
 	// Create VAO for line segment used for debug drawing
 	std::vector<glm::vec4> Pnt = { glm::vec4(0,0,0,1), glm::vec4(1,1,1,1) };
@@ -102,122 +109,97 @@ void RenderSystem::doGeometryPass(Engine& engine)
 			geoPassUnis.worldProj = engine.getWorld().worldProj;
 			geoPassUnis.worldInverse = engine.getWorld().worldInverse;
 
-			
-			// For every material used in scene
-			for (auto& it : engine.Resource().materials)
+
+
+			// For every entity in world
+			for (Entity* e : engine.getWorld().entities)
 			{
-				std::string matName = it.first;
-				Material* mat = it.second;
-
-				// Material exists
-				if (mat)
+				if (e)
 				{
-					unsigned int nRefs = mat->entityRefs.size();
+					RenderComponent* render = e->getComponent<RenderComponent>();
+					TransformComponent* transform = e->getComponent<TransformComponent>();
 
-					// Use shader on material
-					mat->getShader()->UseShader();
+					// Skip if they don't exist
+					if (!transform || !render)
+						continue;
 
-					// Render every entity using this material
-					for (unsigned int i = 0; i < nRefs; i++)
+					// The render component's mesh
+					Mesh* mesh = render->mesh;
+
+					// Mesh exists
+					if (mesh)
 					{
-						Entity* e = mat->entityRefs[i];
+						unsigned int nSubMeshes = mesh->nMeshes;
 
-						// Entity exists
-						if (e)
+						// For every sub-mesh in the mesh
+						for (unsigned int i = 0; i < nSubMeshes; i++)
 						{
-							// Get it's transform and render components
-							TransformComponent* transform = e->getComponent<TransformComponent>();
-							RenderComponent* render = e->getComponent<RenderComponent>();
+							unsigned int materialIndex = mesh->meshData[i].materialIndex;
 
-							// Skip if they don't exist
-							if (!transform || !render)
-								continue;
-
-							// Make object model matrix
-							glm::mat4 modelMatrix(1.0f);
-							modelMatrix = glm::translate(modelMatrix, transform->pos);
-							modelMatrix = glm::rotate(modelMatrix, (transform->angle), transform->rot);
-							modelMatrix = glm::scale(modelMatrix, transform->scl * glm::vec3(0.01f, 0.01f, 0.01f));
-
-							// Set model matrix uniform
-							int loc = glGetUniformLocation(mat->getShader()->programId, "ModelTr");
-							glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(modelMatrix));
+							// If sub-mesh material index is greater than # of material slots, set it to 
+							if (materialIndex >= render->materials.size())
+							{
+								materialIndex = 0;
+							}
 
 							
+							// The material on this sub-mesh
+							Material* mat = render->materials[materialIndex];
 
-							// Set world specific uniforms
-							geometryPass->setGeometryPassUnis(engine, geoPassUnis);
+							// Material exists
+							if (mat)
+							{
+								mat->getShader()->UseShader();
 
-							// Set material specific uniforms
-							geometryPass->setMaterialUniforms(engine, mat);
+								// Make object model matrix
+								glm::mat4 modelMatrix(1.0f);
+								modelMatrix = glm::translate(modelMatrix, transform->pos);
+								modelMatrix = glm::rotate(modelMatrix, (transform->angle), transform->rot);
+								modelMatrix = glm::scale(modelMatrix, transform->scl * glm::vec3(0.01f, 0.01f, 0.01f));
+
+								// Set model matrix uniform
+								int loc = glGetUniformLocation(mat->getShader()->programId, "ModelTr");
+								glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(modelMatrix));
+
+								loc = glGetUniformLocation(mat->getShader()->programId, "hasDiffuseTexture");
+								glUniform1i(loc, mat->hasDiffuseTexture);
+
+								loc = glGetUniformLocation(mat->getShader()->programId, "hasNormalsTexture");
+								glUniform1i(loc, mat->hasNormalsTexture);
+
+								// Set world specific uniforms
+								geometryPass->setGeometryPassUnis(engine, geoPassUnis);
+
+								// Set material specific uniforms
+								geometryPass->setMaterialUniforms(engine, mat);
+
+
+								// Bind the VAO
+								glBindVertexArray(mesh->meshData[i].VAO);
+
+								// Draw the mesh
+								glDrawElements(GL_TRIANGLES, mesh->meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
+
+								// Un-bind the VAO
+								glBindVertexArray(0);
+
+								// Done using this materials shader
+								mat->getShader()->UnuseShader();
+							}
+							else
+							{
+								Log::warning("Material on sub-mesh dpesn't exist!");
+							}
 							
-							// Render mesh
-							geometryPass->draw(render);
 						}
 					}
-
-					// Done using this materials shader
-					mat->getShader()->UnuseShader();
 				}
 			}
+
 			glDisable(GL_POLYGON_OFFSET_FILL);
-		}
-	}
-	// Bind default framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
 
-
-
-//---------------------------------------------------------------\\
-//                    LIGHTING PASS                              \\
-//----------------------------------------------------------------\\
-
-void RenderSystem::doLightingPass(Engine& engine)
-{
-	if (lightingPass)
-	{
-		if (lightingPass->shader && gBuffer)
-		{
-
-			glEnable(GL_DEPTH_TEST);
-
-			glViewport(0, 0, engine.getPlatform().width, engine.getPlatform().height);
-
-			// Bind default frame buffer
+			// Bind default framebuffer
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-			// Clear screen
-			glClearColor(0.0, 0.0, 0.0, 1.0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			lightingPass->shader->UseShader();
-
-			// Set lighting uniforms
-			lightingPass->setLightingPassUnis(engine, gBuffer, lightingPass2Unis);
-
-
-			// Draw full screen quad
-			if (gBuffer->getQuad())
-			{
-				glBindVertexArray(gBuffer->getQuad()->vaoID);
-				glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-				glBindVertexArray(0);
-			}
-			else
-			{
-				Log::error("Cannot draw G-Buffer Quad. It does not exist.");
-			}
-
-			
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer->getBuffer());
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // write to default framebuffer
-			// blit to default framebuffer. Note that this may or may not work as the internal formats of both the FBO and default framebuffer have to match.
-			// the internal formats are implementation defined. This works on all of my systems, but if it doesn't on yours you'll likely have to write to the 		
-			// depth buffer in another shader stage (or somehow see to match the default framebuffer's internal format with the FBO's internal format).
-			glBlitFramebuffer(0, 0, gBuffer->getWidth(), gBuffer->getHeight(), 0, 0, gBuffer->getWidth(), gBuffer->getHeight(), GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			
 
 		}
 	}
@@ -326,7 +308,110 @@ void RenderSystem::doPointLightShadowPass(Engine& engine)
 }
 
 
+//---------------------------------------------------------------\\
+//                    LIGHTING PASS                              \\
+//----------------------------------------------------------------\\
 
+void RenderSystem::doLightingPass(Engine& engine)
+{
+	if (lightingPass)
+	{
+		if (lightingPass->shader && gBuffer)
+		{
+
+			glEnable(GL_DEPTH_TEST);
+
+			glViewport(0, 0, engine.getPlatform().width, engine.getPlatform().height);
+
+			// Bind default frame buffer
+			//glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, sceneColorFBO->get());
+
+			// Clear screen
+			glClearColor(0.0, 0.0, 0.0, 1.0);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			lightingPass->shader->UseShader();
+
+			// Set lighting uniforms
+			lightingPass->setLightingPassUnis(engine, gBuffer, lightingPass2Unis);
+
+
+			// Draw full screen quad
+			if (gBuffer->getQuad())
+			{
+				glBindVertexArray(gBuffer->getQuad()->vaoID);
+				glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+				glBindVertexArray(0);
+			}
+			else
+			{
+				Log::error("Cannot draw G-Buffer Quad. It does not exist.");
+			}
+
+
+			//glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer->getBuffer());
+			//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // write to default framebuffer
+			// blit to default framebuffer. Note that this may or may not work as the internal formats of both the FBO and default framebuffer have to match.
+			// the internal formats are implementation defined. This works on all of my systems, but if it doesn't on yours you'll likely have to write to the 		
+			// depth buffer in another shader stage (or somehow see to match the default framebuffer's internal format with the FBO's internal format).
+			//glBlitFramebuffer(0, 0, gBuffer->getWidth(), gBuffer->getHeight(), 0, 0, gBuffer->getWidth(), gBuffer->getHeight(), GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+			//glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+		}
+	}
+}
+
+
+void RenderSystem::doPostProcessPass(Engine& engine)
+{
+	if (postProcessPass)
+	{
+		if (postProcessPass->shader && sceneColorFBO)
+		{
+			// Bind default framebuffer
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+			//glEnable(GL_DEPTH_TEST);
+
+			glViewport(0, 0, engine.getPlatform().width, engine.getPlatform().height);
+
+			// Clear screen
+			glClearColor(0.0, 0.0, 0.0, 1.0);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			postProcessPass->shader->UseShader();
+
+			
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, sceneColorFBO->getTextures()[0].texture->get());
+			int loc = glGetUniformLocation(postProcessPass->shader->programId, "sceneColor");
+			glUniform1i(loc, 0);
+
+			loc = glGetUniformLocation(postProcessPass->shader->programId, "time");
+			glUniform1f(loc, engine.getWorld().time);
+
+
+			// Draw full screen quad
+			if (sceneColorFBO->getQuad())
+			{
+				glBindVertexArray(sceneColorFBO->getQuad()->vaoID);
+				glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+				glBindVertexArray(0);
+			}
+			else
+			{
+				Log::error("Cannot draw post process Quad. It does not exist.");
+			}
+
+			postProcessPass->shader->UnuseShader();
+		}
+
+		
+	}
+}
 
 
 //-------------\\
@@ -382,9 +467,13 @@ void RenderSystem::doDebugPass(Engine& engine)
 
 		//debugGimbal.draw(engine.getWorld().lightPos, debugShader);
 
-		//drawBVHTreeDebug();
+		
 
 	}
+
+	drawBVHTreeDebug();
+
+	
 
 	// After drawing all scene objects, draw needed debug lines
 	if (engine.debug.drawDebugLines)
@@ -410,8 +499,13 @@ void RenderSystem::update(Engine& engine)
 	// Render deferred lighting
 	doLightingPass(engine);
 
+	// Apply post processing
+	doPostProcessPass(engine);
+
 	// Draw debug lines
 	doDebugPass(engine); 
+
+
 
 	
 }

@@ -175,29 +175,71 @@ void UI::renderComp_draw()
     ImGui::NewLine();
 
     RenderComponent* render = engine.selectedEntity->getComponent<RenderComponent>();
-    Material* mat = render->material;
 
-    // Drop down for material selection of current selected entity
-    if (ImGui::BeginCombo("Material Select", selectedMaterialName.c_str()))
+    Material* mat = nullptr;
+
+    if (render)
     {
-        for (auto& it : engine.Resource().materials)
-        {
-            bool is_selected = true;
+        mat = render->materials[0];
 
-            if (ImGui::Selectable(it.first.c_str(), is_selected))
+        unsigned int nSlots = render->materials.size();
+        std::vector<Material*>& materials = render->materials;
+
+        ImGui::Text("Material Slots");
+        
+        // List of material slots
+        if (ImGui::BeginListBox(" "))
+        {
+            // For every slot
+            for (unsigned int i = 0; i < nSlots; i++)
             {
-                if (it.second)
+                const bool is_selected = (componentTab.selectedSlot == i);
+
+                // Select a material slot
+                if (ImGui::Selectable(materials[i]->getName().c_str(), is_selected))
                 {
-                    render->setMaterial(it.second, engine.selectedEntity);
-                    selectedMaterialName = it.first;
-                    render = engine.selectedEntity->getComponent<RenderComponent>();
-                    mat = render->material;
+                    componentTab.selectedSlot = i;
+                    selectedMaterialName = materials[i]->getName().c_str();
+                    
+                }
+
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
                 }
             }
-        }
-        ImGui::EndCombo();
-    }
 
+            ImGui::EndListBox();
+        }
+
+
+        if (componentTab.selectedSlot >= 0 && componentTab.selectedSlot < render->materials.size())
+        {
+            mat = render->materials[componentTab.selectedSlot];
+        }
+
+        ImGui::Text("Select Material");
+
+        if (ImGui::BeginCombo(" ", selectedMaterialName.c_str()))
+        {
+            for (auto& it : engine.Resource().materials)
+            {
+                bool is_selected = true;
+
+                if (ImGui::Selectable(it.first.c_str(), is_selected))
+                {
+                    if (it.second)
+                    {
+                        render->setMaterial(it.second, engine.selectedEntity, componentTab.selectedSlot);
+                        selectedMaterialName = it.second->getName().c_str();
+                        mat = it.second;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    
 
     // Edit selected material
     ImGui::NewLine();
@@ -253,9 +295,11 @@ void UI::renderComp_draw()
 
         for (auto& it : mat->vTexture)
         {
-            ImGui::Text(it.first.c_str());
+            std::string slotName = it.first;
 
-            if (ImGui::BeginCombo(it.first.c_str(), selectedTextureName.c_str()))
+            ImGui::Text(slotName.c_str());
+
+            if (ImGui::BeginCombo(slotName.c_str(), selectedTextureName.c_str()))
             {
                 for (auto& it2 : engine.Resource().textures)
                 {
@@ -265,6 +309,19 @@ void UI::renderComp_draw()
                     {
                         it.second = it2.second;
                         selectedTextureName = it2.first;
+
+                        if (slotName == "textureDiffuse")
+                        {
+                            mat->hasDiffuseTexture = true;
+                        }
+                        else if (slotName == "textureNormal")
+                        {
+                            mat->hasNormalsTexture = true;
+                        }
+                        else if (slotName == "textureSpecular")
+                        {
+                            mat->hasSpecularTexture = true;
+                        }
                     }
 
                 }

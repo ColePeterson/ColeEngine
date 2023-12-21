@@ -13,6 +13,7 @@
 #include "Entity.h"
 #include "PointLight.h"
 #include "ResourceManager.h"
+#include "Mesh.h"
 #include"geomlib.h"
 
 
@@ -75,16 +76,22 @@ private:
 	Platform& platform;
 	ResourceManager& resource;
 
+	// BVH objects
 	std::vector<Box3D*> objList;
 	
+
 	int triangleCount;
 	int num_bvh_leaf_nodes = 0;
 	int minLeafDepth = 999;
 	int maxLeafDepth = 0;
 	int num_bvh_intersections = 0;
 
+	Mesh* importFBX(std::string path);
 
 	void createAABBlist();
+	void createAABBlist2();
+
+	void createBvhObjects();
 
 	TreeNode* createBVH(std::vector<Box3D*>& objects, int depth);
 

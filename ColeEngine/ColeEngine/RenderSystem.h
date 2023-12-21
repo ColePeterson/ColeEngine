@@ -11,6 +11,7 @@
 #include "Texture.h"
 #include "DebugDrawing.h"
 #include "GBuffer.h"
+#include "FrameBuffer.h"
 
 #define GLM_FORCE_RADIANS
 #define GLM_SWIZZLE
@@ -33,6 +34,7 @@ private:
 	void doGeometryPass(Engine& engine);
 	void doLightingPass(Engine& engine);
 	void doPointLightShadowPass(Engine& engine);
+	void doPostProcessPass(Engine& engine);
 	void doDebugPass(Engine& engine);
 	//void doDirectionalShadowPass(Engine& engine);
 
@@ -51,11 +53,17 @@ private:
 	// Render pipeline for deferred lighting
 	RenderPipeline* lightingPass;
 
+	// Render pipeline for post processing
+	RenderPipeline* postProcessPass;
+
 	// Basic shader for debug pass
 	ShaderProgram* debugShader;
 
 	// G-Buffer for deferred shading
 	GBuffer* gBuffer;
+
+	// Framebuffer to render scene color to
+	FrameBuffer* sceneColorFBO;
 
 	//FBO shadowFBO; // FBO for directional shadows
 	//glm::mat4 shadowMatrix; // Transform for directional light

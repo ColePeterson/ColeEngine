@@ -12,6 +12,8 @@
 #include "Shader.h"
 #include "Material.h"
 
+class Material;
+
 class ResourceManager
 {
 public:
@@ -20,6 +22,7 @@ public:
 	ShaderProgram* shader(std::string name);
 
 	Texture* getTexture(std::string src);
+	Texture* getNullTexture();
 
 	Material* getMaterial(std::string name);
 
@@ -29,8 +32,11 @@ public:
 	// Load shader program (fragment, vertex)
 	void loadShader(std::string name, std::string fragSrc, std::string vertSrc);
 
-
+	// Create a material with specified shader, add to resource manager
 	void createNewMaterial(std::string name, ShaderProgram* shader);
+
+	// Add a previously created texture to resource manager
+	void addTexture(std::string name, Texture* texture);
 
 	void freeShader(std::string name);
 	void freeTexture(std::string name);
@@ -47,6 +53,7 @@ private:
 	Texture* loadTexture(std::string src);
 
 	Texture* skyTexture;
+	Texture* nullTexture;
 };
 
 #endif

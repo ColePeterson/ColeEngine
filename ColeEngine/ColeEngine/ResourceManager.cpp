@@ -6,9 +6,22 @@
 
 
 ResourceManager::ResourceManager()
-    :textures(0), shaders(0)
+    :textures(0), shaders(0), nullTexture(nullptr), skyTexture(nullptr)
 {
+    nullTexture = new Texture(16, 16, 4, GL_LINEAR);
+}
 
+Texture* ResourceManager::getNullTexture()
+{
+    if (nullTexture)
+    {
+        return nullTexture;
+    }
+    else
+    {
+        Log::error("Cant get null texture");
+        return nullptr;
+    }
 }
 
 void ResourceManager::loadShader(std::string name, std::string fragSrc, std::string vertSrc)
@@ -74,7 +87,22 @@ void ResourceManager::freeShader(std::string name)
 
 }
 
-
+void ResourceManager::addTexture(std::string name, Texture* texture)
+{
+    if (texture)
+    {
+        // Texture with this name already exists
+        if (textures.count(name) > 0) 
+        {
+            Log::warning("Cannot add texture to resource manager. Texture with that name already exists");
+        }
+        else
+        {
+            // Add the texture to resource manager
+            textures[name] = texture;
+        }
+    }
+}
 
 // Create a new texture and add to resource manager
 Texture* ResourceManager::loadTexture(std::string src)
@@ -139,7 +167,6 @@ void ResourceManager::createNewMaterial(std::string name, ShaderProgram* shader)
         {
             mat->setShader(shader);
 
-            
             mat->registerUniforms();
 
             Log::msg("Created material " + name);
@@ -152,6 +179,8 @@ void ResourceManager::createNewMaterial(std::string name, ShaderProgram* shader)
         Log::warning("Material allocation failed");
     }
 }
+
+
 
 
 Material* ResourceManager::getMaterial(std::string name)
