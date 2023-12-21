@@ -3,11 +3,12 @@ A 3D real-time renderer playground from scratch with C++ and OpenGL. (WIP)
 
 # Features:
 
-- Entity component system
+- Entity component systems
 - Multiple render passes
 - Deferred rendering
 - Materials
-- componeent systems
+- Multiple mesh materials/sub-mesh
+- FBX material importing (wip) 
 - FBX model loading with Assimp
 - Multiple point lights + shadows
 - Post process pass
@@ -24,7 +25,6 @@ A 3D real-time renderer playground from scratch with C++ and OpenGL. (WIP)
 # In progress:
 
 - Serialization
-- FBX material importing
 - GGX PBR
 - BVH collision tree
 
