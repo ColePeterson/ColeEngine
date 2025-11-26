@@ -177,6 +177,8 @@ bool Intersects(const Ray3D& ray, const Sphere3D& sphere,   float *rt=NULL);
 bool Intersects(const Ray3D& ray, const Triangle3D& tri,    float *rt=NULL);
 bool Intersects(const Ray3D& ray, const Box3D& box,         float *rt=NULL);
 
+bool Intersects2(const Ray3D& ray, const Box3D& box, float* rt = NULL);
+
 
 ////////////////////////////////////////////////////////////////////////
 // Box3D

@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "Material.h"
+#include "Texture.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -56,15 +57,15 @@ struct MaterialData
     float shininess;
     float reflectivity;
 
-    glm::vec3 diffuseColor;
-    glm::vec3 specularColor;
+    glm::vec4 diffuseColor;
+    glm::vec4 specularColor;
 };
 
 
 // Per mesh data
 struct MeshData
 {
-    unsigned int VAO, EBO;
+    unsigned int VAO, EBO, VBO;
 
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
@@ -113,7 +114,26 @@ private:
 
 
 
+class MeshTerrain : public Mesh
+{
+public:
+    MeshTerrain(float _size, int _resolution, float _height);
+    ~MeshTerrain();
+    void applyHeightMap();
+    void loadHeightMap(std::string path);
 
+    void updateTerrain(float newSize, int newRes, float newHeight);
+private:
+    float size;
+    float height;
+    int resolution;
+
+    std::vector<unsigned char> heightMap;
+    int hWidth, hHeight;
+
+    void updateMesh();
+    void generateMesh(float _size, int _resolution);
+};
 
 
 

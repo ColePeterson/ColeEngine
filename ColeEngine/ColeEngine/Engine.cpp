@@ -5,7 +5,8 @@
 
 
 Engine::Engine(Platform& _platform, World& _world, ResourceManager& _resource)
-	: platform(_platform), onSelect(false), world(_world), selectedEntity(nullptr), resource(_resource), mode(EngineMode::EDITOR)
+	: platform(_platform), onSelect(false), world(_world), selectedEntity(nullptr), playerEntity(nullptr),
+	selectedEntityPrevious(nullptr), resource(_resource), mode(EngineMode::EDITOR)
 {
 	
 

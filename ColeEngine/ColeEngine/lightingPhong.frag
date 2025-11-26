@@ -152,5 +152,5 @@ void main()
     
 
    
-    FragColor.xyz = col;
+    FragColor.xyz = col*checkers(uv*3.,1.);
 }

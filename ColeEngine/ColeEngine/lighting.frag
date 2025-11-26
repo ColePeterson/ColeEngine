@@ -8,6 +8,10 @@ in vec2 texCoord;
 
 const float pi = 3.14159;
 
+const int MODE_NONE = 0;
+const int MODE_TERRAIN = 1;
+
+
 struct Light 
 {
     vec3 pos;
@@ -24,7 +28,8 @@ uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D gAlbedo;
 uniform sampler2D gSpecular;
-uniform sampler2D skyTexture; // 4
+//uniform sampler2D gView; // 4
+uniform sampler2D skyTexture; // 5
 
 uniform samplerCube shadowMapPoint[NR_LIGHTS]; // 4, 5
 
@@ -37,9 +42,8 @@ uniform vec3 ambientColor;
 uniform vec3 sunPos;
 
 
-//uniform float metallic;
-//uniform float roughness;
-//uniform float ao;
+uniform int mode;
+uniform vec3 mouseWorld;
 
 const float metallic = 0.5;
 const float roughness = 0.5;
@@ -208,6 +212,10 @@ void main()
     vec3 Normal = texture(gNormal, texCoord).rgb;
     vec3 Albedo = texture(gAlbedo, texCoord).rgb;
     vec4 Specular = texture(gSpecular, texCoord);
+    //vec4 View = texture(gView, texCoord);
+
+    vec3 v = normalize(viewPos - worldPos.xyz);
+
     float depth = worldPos.w;
 
     vec3 col = vec3(0);
@@ -215,7 +223,6 @@ void main()
     if(basicShading)
     {
         col = lighting_phong(worldPos.xyz, Normal, Albedo, Specular);
-       // col = Albedo;
     }
     else
     {
@@ -229,6 +236,8 @@ void main()
 
     if(depth > 500.0)
         col = texture(skyTexture, tc).xyz;
+
+
 
     FragColor = vec4(col, 1.0);
 }  

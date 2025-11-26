@@ -36,16 +36,22 @@ private:
 	void doPointLightShadowPass(Engine& engine);
 	void doPostProcessPass(Engine& engine);
 	void doDebugPass(Engine& engine);
-	//void doDirectionalShadowPass(Engine& engine);
+	
+	void drawMeshParticlesShadow(ShaderProgram* shader);
+	void drawMeshParticles();
+	void drawSpriteParticles();
 
 	void drawTreeRec(TreeNode* node, int level, int maxLevel);
+	void drawTreeLeaves(TreeNode* node, int level);
 	void drawBVHTreeDebug();
+	void drawTriangleAABB();
 
-	// Render pipeline for shadows
-	RenderPipeline* shadowPass;
+	GBuffer* getGBuffer();
 
 	// Render pipeline for point light shadows
 	RenderPipeline* pointLightPass;
+
+	RenderPipeline* particlesPass;
 
 	// Render pipeline for G-buffer pass
 	RenderPipeline* geometryPass;

@@ -6,12 +6,18 @@
 #include "Platform.h"
 #include "World.h"
 #include "ResourceManager.h"
+
+#include "System.h"
+
+
 //#include "Logging.h"
+
+class World;
 
 enum class EngineMode
 {
 	EDITOR,
-	PLAY
+	TERRAIN
 };
 
 
@@ -34,12 +40,15 @@ public:
 
 	ResourceManager& Resource() { return resource; }
 
-	
-
 	DebugValues debug;
 
 	Entity* selectedEntity;
+	Entity* selectedEntityPrevious;
+	Entity* playerEntity;
+
 	bool onSelect;
+
+	EngineMode mode;
 
 private:
 
@@ -47,9 +56,6 @@ private:
 	World& world;
 	ResourceManager& resource;
 
-	
-
-	EngineMode mode;
 };
 
 #endif

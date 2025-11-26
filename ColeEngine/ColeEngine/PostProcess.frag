@@ -22,6 +22,8 @@ void main()
 
     //col = pow(col*1.5, vec3(2.5));
     
+    
+
     col = 1.-exp(-col);
     FragColor = vec4(col, 1.0);
 

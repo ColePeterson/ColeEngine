@@ -121,7 +121,6 @@ MeshFBX::MeshFBX(std::string path, bool importMaterial)
 
 void Mesh::drawVAO()
 {
-
     for (int i = 0; i < nMeshes; i++)
     {
         // Bind the VAO
@@ -130,12 +129,8 @@ void Mesh::drawVAO()
         // Draw the mesh
         glDrawElements(GL_TRIANGLES, meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
 
-        //glDrawArrays(GL_TRIANGLES, 0, vertices.size());
-
         glBindVertexArray(0);
     }
-    
-   
 }
 
 void MeshFBX::processNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
@@ -269,13 +264,13 @@ void MeshFBX::loadMaterials(const aiScene* scene)
         aiColor3D diffuseColor(0.0f, 0.0f, 0.0f);
         material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor);
 
-        matData[i].diffuseColor = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        matData[i].diffuseColor = glm::vec4(diffuseColor.r, diffuseColor.g, diffuseColor.b, 1.0f);
 
         // Get specular color
         aiColor3D specularColor(0.0f, 0.0f, 0.0f);
         material->Get(AI_MATKEY_COLOR_SPECULAR, specularColor);
 
-        matData[i].specularColor = glm::vec3(specularColor.r, specularColor.g, specularColor.b);
+        matData[i].specularColor = glm::vec4(specularColor.r, specularColor.g, specularColor.b, 1.0f);
 
 
         // Get shininess
@@ -401,4 +396,217 @@ void MeshFBX::loadEmbeddedTexture(const aiTexture* texture, aiTextureType type, 
         matData[index].specularTexture.isEmbedded = true;
         break;
     }
+}
+
+
+
+
+// Generate terrain mesh
+MeshTerrain::MeshTerrain(float _size, int _resolution, float _height)
+    : size(_size), resolution(_resolution), hWidth(0), hHeight(0), height(_height)
+{
+    generateMesh(size, resolution);
+}
+
+MeshTerrain::~MeshTerrain()
+{
+    meshData[0].indices.clear();
+    meshData[0].vertices.clear();
+    meshData.clear();
+    heightMap.clear();
+}
+
+void MeshTerrain::generateMesh(float _size, int _resolution)
+{
+    size = _size;
+    resolution = _resolution;
+
+    int N = resolution;
+    float K = size / static_cast<float>(resolution);
+
+    MeshData data;
+
+    // Calculate half-size to center the plane at the origin
+    float halfSize = static_cast<float>(N * K) / 2.0f;
+
+    // Generate vertices
+    for (int i = 0; i <= N; ++i)
+    {
+        for (int j = 0; j <= N; ++j)
+        {
+            float x = j * K - halfSize;
+            float z = i * K - halfSize;
+
+            Vertex vert;
+            vert.position = { x, z, 0.0f };
+            vert.normal = { 0.0f, 0.0f, -1.0f };
+            vert.texCoords = { static_cast<float>(j) / N, static_cast<float>(i) / N };
+
+            data.vertices.push_back(vert);
+        }
+    }
+
+    // Generate indices
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            // Indices for the current quad
+            unsigned int topLeft = i * (N + 1) + j;
+            unsigned int topRight = topLeft + 1;
+            unsigned int bottomLeft = (i + 1) * (N + 1) + j;
+            unsigned int bottomRight = bottomLeft + 1;
+
+            // First triangle
+            data.indices.push_back(topLeft);
+            data.indices.push_back(bottomLeft);
+            data.indices.push_back(topRight);
+
+            // Second triangle
+            data.indices.push_back(topRight);
+            data.indices.push_back(bottomLeft);
+            data.indices.push_back(bottomRight);
+        }
+    }
+
+
+
+    // Create VAO for terrain mesh
+    glGenVertexArrays(1, &data.VAO);
+
+    // Bind VAO
+    glBindVertexArray(data.VAO);
+
+    // Create index VBO 
+    glGenBuffers(1, &data.VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, data.VBO);
+    glBufferData(GL_ARRAY_BUFFER, data.vertices.size() * sizeof(Vertex), data.vertices.data(), GL_STATIC_DRAW);
+
+    // Specify the vertex attribute pointers
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
+    glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+    glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
+    glEnableVertexAttribArray(2);
+
+    // Generate index buffer
+    glGenBuffers(1, &data.EBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, data.EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.indices.size() * sizeof(unsigned int), data.indices.data(), GL_STATIC_DRAW);
+
+    // Unbind VAO to prevent accidental changes
+    glBindVertexArray(0);
+
+    meshData.push_back(data);
+
+    // Set number of meshes and number of materials asscoiated with model
+    nMeshes = 1;
+    nMaterials = 0;
+}
+
+
+void MeshTerrain::applyHeightMap()
+{
+    std::vector<Vertex>& verts = meshData[0].vertices;
+
+    int nVerts = meshData[0].vertices.size();
+    int nPixels = heightMap.size();
+
+    const float heightOffset = 2.0f;
+
+    for (int i = 0; i < nVerts; i++)
+    {
+        glm::vec3& pos = meshData[0].vertices[i].position;
+        glm::vec3& norm = meshData[0].vertices[i].normal;
+
+        // Normalized coord
+        float nx = (pos.x + size * 0.5f) / size;
+        float ny = (pos.y + size * 0.5f) / size;
+
+        // Texture coords
+        int u = static_cast<int>(nx * hWidth);
+        int v = static_cast<int>(ny * hHeight);
+
+        int index = v * hWidth + u;
+
+        if (index < nPixels && index >= 0)
+        {
+            unsigned char heightVal = heightMap[index];
+
+            pos.z += static_cast<float>(heightVal) * height;
+        }
+    }
+
+
+    // Update normals triangle by triangle
+    for (unsigned int i = 0; i < meshData[0].indices.size(); i += 3)
+    {
+        glm::vec4 minPoint = { 9999.0f, 9999.0f, 9999.0f, 1.0f };
+        glm::vec4 maxPoint = { -9999.0f, -9999.0f, -9999.0f, 1.0f };
+        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
+
+        // Indices of triangle
+        unsigned int index0 = meshData[0].indices[i];
+        unsigned int index1 = meshData[0].indices[i + 1];
+        unsigned int index2 = meshData[0].indices[i + 2];
+
+        // Triangle vertices 
+        glm::vec3 A = meshData[0].vertices[index0].position;
+        glm::vec3 B = meshData[0].vertices[index1].position;
+        glm::vec3 C = meshData[0].vertices[index2].position;
+
+        // Calculate new normal
+        glm::vec3 AB = B - A;
+        glm::vec3 AC = C - A;
+
+        glm::vec3 newNormal = glm::normalize(glm::cross(AC, AB));
+
+        // Set the new normal
+        meshData[0].vertices[index0].normal = newNormal;
+        meshData[0].vertices[index1].normal = newNormal;
+        meshData[0].vertices[index2].normal = newNormal;
+    }
+
+    // Finally, update the mesh on the GPU
+    updateMesh();
+}
+
+
+void MeshTerrain::updateTerrain(float newSize, int newRes, float newHeight)
+{
+    // Update terrain data
+    size = newSize;
+    resolution = newRes;
+    height = newHeight;
+
+    // Delete existing mesh data
+    glDeleteVertexArrays(1, &meshData[0].VAO);
+    glDeleteBuffers(1, &meshData[0].VBO);
+    glDeleteBuffers(1, &meshData[0].EBO);
+    meshData.clear();
+
+    // Generate a new mesh
+    generateMesh(size, resolution);
+
+    // Apply the height map
+    applyHeightMap();
+}
+
+
+
+void MeshTerrain::updateMesh()
+{
+    glBindBuffer(GL_ARRAY_BUFFER, meshData[0].VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, meshData[0].vertices.size() * sizeof(Vertex), meshData[0].vertices.data());
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void MeshTerrain::loadHeightMap(std::string path)
+{
+    heightMap.clear();
+    heightMap = Texture::getHeightMapData(path, &hWidth, &hHeight);
 }

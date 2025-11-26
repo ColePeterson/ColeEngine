@@ -2,8 +2,7 @@
 #include "Logging.h"
 
 GBuffer::GBuffer(unsigned int _width, unsigned int _height)
-	: texPosition(nullptr), texNormal(nullptr), texAlbedo(nullptr),texSpecular(nullptr), 
-	width(_width), height(_height), quad(nullptr)
+	: width(_width), height(_height), quad(nullptr), nBuffers(0)
 {
 
 	// Create full screen quad to render G-Buffer to
@@ -13,87 +12,11 @@ GBuffer::GBuffer(unsigned int _width, unsigned int _height)
 		Log::error("Could not create full screen quad for G-Buffer!");
 	
 
-
 	// Generate G-Buffer framebuffer
 	glGenFramebuffers(1, &gBuffer);
 	glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
 	
-
-
-
-	// Create texture for positions
-	texPosition = new Texture(width, height, 4, GL_NEAREST);
-
-	if (!texPosition)
-		Log::error("texPosition G-Buffer texture failed to create!");
-	else
-	{
-		// Attach texture to framebuffer color out 0
-		glBindTexture(GL_TEXTURE_2D, texPosition->get());
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texPosition->get(), 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-
-
-	// Create texture for normals
-	texNormal = new Texture(width, height, 4, GL_NEAREST);
-
-	if (!texNormal)
-		Log::error("texNormal G-Buffer texture failed to create!");
-	else
-	{
-		// Attach texture to framebuffer color out 1
-		glBindTexture(GL_TEXTURE_2D, texNormal->get());
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, texNormal->get(), 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-
-
-	// Create texture for Albedo
-	texAlbedo = new Texture(width, height, 4, GL_NEAREST);
-
-	if (!texAlbedo)
-		Log::error("texAlbedo G-Buffer texture failed to create!");
-	else
-	{
-		// Attach texture to framebuffer color out 2
-		glBindTexture(GL_TEXTURE_2D, texAlbedo->get());
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, texAlbedo->get(), 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-
-
-	// Create texture for specular color and power (r, g, b, power)
-	texSpecular = new Texture(width, height, 4, GL_NEAREST);
-
-	if (!texSpecular)
-		Log::error("texSpecular G-Buffer texture failed to create!");
-	else
-	{
-		// Attach texture to framebuffer color out 2
-		glBindTexture(GL_TEXTURE_2D, texSpecular->get());
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, texSpecular->get(), 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-
 	
-
-
-	// Set which color attachments are used for rendering on this framebuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
-	unsigned int attachments[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-	glDrawBuffers(4, attachments);
-
-
-
-
-	
-
-
 	// create and attach depth buffer (renderbuffer)
 	unsigned int rboDepth;
 	glGenRenderbuffers(1, &rboDepth);
@@ -105,8 +28,73 @@ GBuffer::GBuffer(unsigned int _width, unsigned int _height)
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 		Log::warning("G-Buffer frame buffer not complete!");
 	
-
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+
+
+Texture* GBuffer::getTexture(BufferType type)
+{
+	// Check if texture with this type is part of G-Buffer
+	auto it = textures.find(type);
+	if (it != textures.end())
+	{
+		Texture* temp = textures[type];
+		// Found it. It's valid. Return it.
+		if (temp)
+		{
+			return temp;
+		}
+		else
+		{
+			Log::error("Couldnt get texture from G-Buffer. Texture does not exist.");
+		}
+	}
+	else // Texture is not in G-Buffer textures 
+	{
+		Log::error("Couldnt get texture from G-Buffer. Texture type not in list.");
+	}
+	return nullptr;
+}
+
+void GBuffer::addBuffer(BufferType type)
+{
+	glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+
+	// Create texture for positions
+	Texture* tex = new Texture(width, height, 4, GL_NEAREST);
+
+	if (!tex)
+		Log::error("Failed to create new texture for G-Buffer!");
+	else
+	{
+		// Attach texture to framebuffer color out 0
+		glBindTexture(GL_TEXTURE_2D, tex->get());
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + nBuffers, GL_TEXTURE_2D, tex->get(), 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		nBuffers++;
+
+		// Add to list of textures
+		textures.emplace(type, tex);
+
+		// Bind FBO
+		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+
+		// Set which color attachments are used for rendering on this framebuffer
+		std::vector<unsigned int> attachments;
+		for (unsigned int i = 0; i < nBuffers; i++)
+		{
+			attachments.push_back(GL_COLOR_ATTACHMENT0 + i);
+		}
+
+		glDrawBuffers(nBuffers, attachments.data());
+
+		// Check if framebuffer is complete
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+			Log::warning("G-Buffer frame buffer not complete!");
+
+	}
 
 }
 
@@ -114,6 +102,15 @@ GBuffer::GBuffer(unsigned int _width, unsigned int _height)
 
 GBuffer::~GBuffer()
 {
+	// Delete textures attached to FBO
+	for (const auto& pair : textures) 
+	{
+		if (pair.second)
+		{
+			delete pair.second;
+		}
+	}
+	/*
 	if (texPosition)
 	{
 		delete texPosition;
@@ -134,6 +131,7 @@ GBuffer::~GBuffer()
 		delete texSpecular;
 		texSpecular = nullptr;
 	}
+	*/
 	if (quad)
 	{
 		delete quad;

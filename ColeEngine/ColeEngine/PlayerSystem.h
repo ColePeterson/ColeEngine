@@ -19,6 +19,10 @@ public:
 	void update(Engine& engine) override;
 
 private:
+	
+	void flyCam(Engine& engine);
+
+	void editorCam(Engine& engine);
 
 };
 

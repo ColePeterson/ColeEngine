@@ -39,10 +39,19 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 }
 
 
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) 
+{
+    Platform* platform = static_cast<Platform*>(glfwGetWindowUserPointer(window));
+    if (platform)
+    {
+        platform->scroll_dx = yoffset;
+    }
+}
+
 
 Platform::Platform(int _width, int _height)
     : width(_width), height(_height), focused(true), menu(true), mouseLeftRelease(false), mouseRightRelease(false),
-    mouseLeft(false), mouseRight(false)
+    mouseLeft(false), mouseRight(false), middleDown(false), f_down(false), middleRelease(false), scroll_dx(0.0f)
 {
     glfwSetErrorCallback(error_callback);
 
@@ -67,8 +76,12 @@ Platform::Platform(int _width, int _height)
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    // Set the user pointer to the instance of OrbitCamera
+    glfwSetWindowUserPointer(window, this);
+
    // glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetWindowSizeCallback(window, window_size_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     //glfwSetCursorPosCallback(window, cursor_position_callback);
     //glfwSetMouseButtonCallback(window, mouse_button_callback);
 
@@ -106,6 +119,7 @@ void Platform::updateMouse()
     mouseLeftRelease = false;
     mouseRightRelease = false;
 
+
     if (mLeft == GLFW_PRESS)
     {
         mouseLeft = true;
@@ -134,6 +148,27 @@ void Platform::updateMouse()
         mouseRight = false;
     }
 
+
+    int mMiddle = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
+
+    if (mMiddle == GLFW_PRESS)
+    {
+        middleDown = true;
+    }
+    else if (mMiddle == GLFW_RELEASE)
+    {
+        if (middleDown)
+        {
+            middleRelease = true;
+        }
+        middleDown = false;
+    }
+
+    
+   
+
+
+
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
 
@@ -156,7 +191,7 @@ void Platform::updateKeyboard()
     int key_s = glfwGetKey(window, GLFW_KEY_S);
     if (key_s == GLFW_PRESS)
         s_down = true;
-    else if (key_w == GLFW_RELEASE)
+    else if (key_s == GLFW_RELEASE)
         s_down = false;
 
     int key_a = glfwGetKey(window, GLFW_KEY_A);
@@ -168,8 +203,14 @@ void Platform::updateKeyboard()
     int key_d = glfwGetKey(window, GLFW_KEY_D);
     if (key_d == GLFW_PRESS)
         d_down = true;
-    else if (key_w == GLFW_RELEASE)
+    else if (key_d == GLFW_RELEASE)
         d_down = false;
+
+    int key_f = glfwGetKey(window, GLFW_KEY_F);
+    if (key_f == GLFW_PRESS)
+        f_down = true;
+    else if (key_f == GLFW_RELEASE)
+        f_down = false;
 
     int key_lsfift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
     if (key_lsfift == GLFW_PRESS)

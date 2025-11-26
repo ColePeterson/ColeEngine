@@ -1,6 +1,6 @@
 #include "DebugDrawing.h"
 
-
+#include "Mesh.h"
 
 
 //const float PI = 3.14159;
@@ -127,6 +127,24 @@ glm::mat4 DebugAABB::makeTransformFromEntity(Entity* entity)
     }
 }
 
+void DebugAABB::draw(glm::vec3 pos, glm::vec3 scale, ShaderProgram* program)
+{
+    glm::mat4 transform(1.0f);
+
+    transform = glm::translate(transform, pos);
+    transform = glm::rotate(transform, 0.0f, glm::vec3(0.0f, 0.0f, 1.0f));
+    transform = glm::scale(transform, scale * glm::vec3(0.01f, 0.01f, 0.01f));
+
+    // Set transformation for vertex shader
+    int loc = glGetUniformLocation(program->programId, "ModelTr");
+    glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
+
+    // Draw
+    glBindVertexArray(vaoID);
+    glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
+
 void DebugAABB::draw(Entity* entity, ShaderProgram* program)
 {
     AABBComponent* aabb = entity->getComponent<AABBComponent>();
@@ -177,14 +195,29 @@ glm::mat4 DebugGimbal::makeTransform(Entity* entity)
 }
 
 
+
+void DebugGimbal::drawLine(glm::vec3 from, glm::vec3 to, ShaderProgram* program)
+{
+    transform = Translate(from) * Scale(to - from);
+
+    int loc = glGetUniformLocation(program->programId, "ModelTr");
+    glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
+
+    loc = glGetUniformLocation(program->programId, "diffuse");
+    glUniform3f(loc, 0.0f, 0.0f, 1.0f);
+
+    glBindVertexArray(vaoID);
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
+
 void DebugGimbal::draw(Entity* entity, ShaderProgram* program)
 {
     if (entity)
     {
-        RenderComponent* rc = entity->getComponent<RenderComponent>();
         TransformComponent* tc = entity->getComponent<TransformComponent>();
 
-        if (rc && tc)
+        if (tc)
         {
             // Z axis
             glm::vec3 A = tc->pos;
@@ -499,8 +532,46 @@ void DebugTriangles::draw(Entity* entity, ShaderProgram* program)
 
             glBindVertexArray(vaoID);
 
-            glm::mat4 transform = Translate(tc->pos) * Scale(tc->scl);
+            glm::mat4 transform = Translate(tc->pos) * Scale(tc->scl * glm::vec3(0.01f, 0.01f, 0.01f));
 
+            Mesh* mesh = rc->mesh;
+
+            // For every sub-mesh on mesh
+            for (unsigned int i = 0; i < mesh->nMeshes; i++)
+            {
+                std::vector<Vertex>& vertices = mesh->meshData[i].vertices;
+                std::vector<unsigned int>& indices = mesh->meshData[i].indices;
+
+                // For triangle on mesh
+                for (unsigned int j = 0; j < mesh->meshData[i].indices.size(); j += 3)
+                {
+                    unsigned int index0 = mesh->meshData[i].indices[j];
+                    unsigned int index1 = mesh->meshData[i].indices[j + 1];
+                    unsigned int index2 = mesh->meshData[i].indices[j + 2];
+
+                    glm::vec3 v0 = mesh->meshData[i].vertices[index0].position;
+                    glm::vec3 v1 = mesh->meshData[i].vertices[index1].position;
+                    glm::vec3 v2 = mesh->meshData[i].vertices[index2].position;
+
+                    // Get points of triangle in world space
+                    glm::vec4 A = transform * glm::vec4(v0, 1.0f);
+                    glm::vec4 B = transform * glm::vec4(v1, 1.0f);
+                    glm::vec4 C = transform * glm::vec4(v2, 1.0f);
+
+                    // Set model transform
+                    glm::mat4 trn = { A.x, A.y, A.z, 1.0f, B.x, B.y, B.z, 1.0f, C.x, C.y, C.z, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+                    glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(trn));
+
+                    // Draw
+                   // glDrawElements(GL_LINE_LOOP, 3, GL_UNSIGNED_INT, 0);
+                    glDrawArrays(GL_LINE_LOOP, 0, 3);
+                }
+
+            }
+
+            glBindVertexArray(0);
+
+            /*
             // For every triangle in model
             unsigned int nTris = rc->mesh2->Tri.size();
             for (unsigned int i = 0; i < nTris; i++)
@@ -523,8 +594,8 @@ void DebugTriangles::draw(Entity* entity, ShaderProgram* program)
                // glDrawElements(GL_LINE_LOOP, 3, GL_UNSIGNED_INT, 0);
                 glDrawArrays(GL_LINE_LOOP, 0, 3);
             }
-
-            glBindVertexArray(0);
+            */
+            //glBindVertexArray(0);
         }
     }
 }

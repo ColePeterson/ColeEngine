@@ -2,7 +2,7 @@
 
 precision highp float;
 
-uniform mat4 WorldView, WorldInverse, WorldProj, ModelTr;
+uniform mat4 WorldView, WorldInverse, WorldProj, ModelTr, MVP;
 
 layout(location = 0) in vec4 vertex; 
 layout(location = 1) in vec3 vertexNormal; 
@@ -23,9 +23,8 @@ void main()
 {
     vec3 eye = (WorldInverse*vec4(0,0,0,1)).xyz;
 
-    //vec4 v = vec4(vertex.x, -vertex.z, vertex.y, vertex.w);
     vec4 p = WorldProj*WorldView*ModelTr*vertex;
-
+    
     gl_Position = p;
     
     depth = p.w;

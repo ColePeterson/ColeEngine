@@ -83,9 +83,9 @@ void Material::registerUniforms()
 					{
 						vFloat[name] = FloatParam(1.0f, 0.0f, 1.0f);
 					}
-					else if (type == "Color3")
+					else if (type == "Color4")
 					{
-						vColor[name] = glm::vec3(1., 1., 1.);
+						vColor[name] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
 					}
 				}
 			}

@@ -327,6 +327,45 @@ static bool isBetween(float x, float a, float b)
         return false;
 }
 
+
+bool Intersects2(const Ray3D& ray, const Box3D& box, float* rt) 
+{
+    if (glm::length(ray.direction) < 0.001f)
+        return false;
+
+    glm::vec3 pMin = box.center - box.extents * 0.5f;
+    glm::vec3 pMax = box.center + box.extents * 0.5f;
+    
+    // Check for intersection with the X, Y, and Z planes of the bounding box
+    float tMin = (pMin.x - ray.origin.x) / ray.direction.x;
+    float tMax = (pMax.x - ray.origin.x) / ray.direction.x;
+
+    if (tMin > tMax) std::swap(tMin, tMax);
+
+    float tYMin = (pMin.y - ray.origin.y) / ray.direction.y;
+    float tYMax = (pMax.y - ray.origin.y) / ray.direction.y;
+
+    if (tYMin > tYMax) std::swap(tYMin, tYMax);
+
+    if ((tMin > tYMax) || (tYMin > tMax))
+        return false;
+
+    if (tYMin > tMin)
+        tMin = tYMin;
+
+    float tZMin = (pMin.z - ray.origin.z) / ray.direction.z;
+    float tZMax = (pMax.z - ray.origin.z) / ray.direction.z;
+
+    if (tZMin > tZMax) std::swap(tZMin, tZMax);
+
+    if ((tMin > tZMax) || (tZMin > tMax))
+        return false;
+
+    return true;
+}
+
+
+
 // Determines if 3D ray and AABB intersect.  
 // If so and rt is not NULL, returns intersection parameter.
 bool Intersects(const Ray3D& ray, const Box3D& box, float* rt)

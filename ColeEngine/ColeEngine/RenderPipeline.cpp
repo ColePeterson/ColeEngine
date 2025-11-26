@@ -43,32 +43,40 @@ void RenderPipeline::setLightingPassUnis(Engine& engine, GBuffer* gBuffer, Light
     int loc = glGetUniformLocation(shader->programId, "viewPos");
     glUniform3fv(loc, 1, &engine.getWorld().eyePos[0]);
 
+   
 
     // Bind G-Buffer textures to sampler slots
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, gBuffer->getPosition()->get());
+    glBindTexture(GL_TEXTURE_2D, gBuffer->getTexture(BufferType::POSITION)->get());
     loc = glGetUniformLocation(shader->programId, "gPosition");
     glUniform1i(loc, 0);
 
     // Set normals texture
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, gBuffer->getNormal()->get());
+    glBindTexture(GL_TEXTURE_2D, gBuffer->getTexture(BufferType::NORMALS)->get());
     loc = glGetUniformLocation(shader->programId, "gNormal");
     glUniform1i(loc, 1);
 
     // Set albedo texture
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, gBuffer->getAlbedo()->get());
+    glBindTexture(GL_TEXTURE_2D, gBuffer->getTexture(BufferType::ALBEDO)->get());
     loc = glGetUniformLocation(shader->programId, "gAlbedo");
     glUniform1i(loc, 2);
 
     // Set specular texture
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, gBuffer->getSpecular()->get());
+    glBindTexture(GL_TEXTURE_2D, gBuffer->getTexture(BufferType::SPECULAR)->get());
     loc = glGetUniformLocation(shader->programId, "gSpecular");
     glUniform1i(loc, 3);
 
+    /*
+    // Set view texture
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, gBuffer->getTexture(BufferType::VIEW)->get());
+    loc = glGetUniformLocation(shader->programId, "gView");
+    glUniform1i(loc, 4);
 
+    */
     // Set sky texture
     if (engine.Resource().getSkyTexture())
     {
@@ -173,8 +181,26 @@ void RenderPipeline::setPointShadowPassUnis(Engine& engine, PointLightShadowPass
     int loc = glGetUniformLocation(shader->programId, "far_plane");
     glUniform1f(loc, pointPassUnis.farPlane);
 
+
     loc = glGetUniformLocation(shader->programId, "lightPos");
     glUniform3fv(loc, 1, &pointPassUnis.pointLightPos[0]);
+
+
+    // Set the editor mode
+    loc = glGetUniformLocation(shader->programId, "mode");
+    if (engine.mode == EngineMode::TERRAIN)
+    {
+        glUniform1i(loc, 1);
+    }
+    else
+    {
+        glUniform1i(loc, 0);
+    }
+
+    // Set mouse world position
+    loc = glGetUniformLocation(shader->programId, "mouseWorld");
+    glUniform3fv(loc, 1, &engine.getWorld().mouseWorldPos[0]);
+
 
     for (unsigned int i = 0; i < 6; ++i)
     {
@@ -185,6 +211,30 @@ void RenderPipeline::setPointShadowPassUnis(Engine& engine, PointLightShadowPass
         glUniformMatrix4fv(loc, 1, GL_FALSE, &trn[0][0]);
     }
     
+}
+
+void RenderPipeline::setSpriteMaterialUniforms(Engine& engine, Material* mat, SpriteUniforms unis)
+{
+    if (mat)
+    {
+        // Shader attached to material
+        ShaderProgram* shader = mat->getShader();
+
+        int loc = glGetUniformLocation(shader->programId, "diffuse");
+        glUniform4fv(loc, 1, &unis.color[0]);
+
+        Texture* texture = mat->vTexture["sprite_texture"];
+        //Texture* texture = nullptr;
+        if (texture)
+        {
+            loc = glGetUniformLocation(shader->programId, "sprite");
+            glUniform1i(loc, 0);
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture->get());
+
+        }
+    }
 }
 
 void RenderPipeline::setMaterialUniforms(Engine& engine, Material* mat)
@@ -228,11 +278,11 @@ void RenderPipeline::setMaterialUniforms(Engine& engine, Material* mat)
         for (auto& it : mat->vColor)
         {
             std::string name = it.first;
-            Color3 value = it.second;
+            Color4 value = it.second;
 
             std::string nm = name + ".c";
             int loc = glGetUniformLocation(shader->programId, nm.c_str());
-            glUniform3fv(loc, 1, &value[0]);
+            glUniform4fv(loc, 1, &value[0]);
         }
 
         // Set vec3 uniforms

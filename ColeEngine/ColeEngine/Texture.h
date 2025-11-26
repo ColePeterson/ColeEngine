@@ -26,6 +26,8 @@ public:
 
 	unsigned int get() { return texture; }
 
+	static std::vector<unsigned char> getHeightMapData(std::string path, int* hWidth, int* hHeight);
+
 	bool load(std::string path);
 	bool loadEmbedded(aiTexel* textureData, unsigned int _width, unsigned int _height);
 	void unload();

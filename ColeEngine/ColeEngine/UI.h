@@ -45,6 +45,7 @@ public:
 	void transformComp_draw();
 	void renderComp_draw();
 	void pointLightComp_draw();
+	void terrainComp_draw();
 
 private:
 	Engine& engine;

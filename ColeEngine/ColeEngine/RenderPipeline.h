@@ -13,6 +13,7 @@
 #include "Engine.h"
 #include "Material.h"
 #include "GBuffer.h"
+//#include "ParticleEmitter.h"
 
 struct GeometryPassUniforms
 {
@@ -46,6 +47,12 @@ struct PointLightShadowPassUniforms
 	unsigned int textureID;
 };
 
+struct SpriteUniforms
+{
+	glm::vec4 color;
+
+};
+
 class RenderPipeline
 {
 public:
@@ -60,8 +67,9 @@ public:
 	void setShadowPassUnis(Engine& engine, RenderComponent* render, ShadowPassUniforms uniforms);
 	void setPointShadowPassUnis(Engine& engine, PointLightShadowPassUniforms pointPassUnis);
 
-	//void setMaterialUniforms(Engine& engine, LightingPassUniforms lightingUnis, PointLightShadowPassUniforms pointunis, Material* mat);
 	void setMaterialUniforms(Engine& engine, Material* mat);
+	void setSpriteMaterialUniforms(Engine& engine, Material* mat, SpriteUniforms unis);
+
 	std::string getName() { return name; }
 
 	ShaderProgram* shader = nullptr;

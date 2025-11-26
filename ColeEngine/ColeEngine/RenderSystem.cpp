@@ -29,10 +29,30 @@ static unsigned int VaoFromPoints(std::vector<glm::vec4> Pnt, std::vector<int> I
 	return vaoID;
 }
 
+static glm::vec3 getRayDirection(int screenWidth, int screenHeight, double mouseX, double mouseY, glm::mat4 viewMatrix, glm::mat4 projectionMatrix)
+{
+	// Convert mouse coordinates to NDC (Normalized Device Coordinates)
+	float ndcX = (2.0f * mouseX) / (static_cast<float>(screenWidth) - 1.0f);
+	float ndcY = 1.0f - (2.0f * mouseY) / static_cast<float>(screenHeight);
+	//float ndcX = 0.0f;
+	//float ndcY = 0.0f;
+	// Create a ray in clip space
+	glm::vec4 rayClip(ndcX, ndcY, -1.0f, 0.0f);
 
+	glm::mat4 viewProjectionInverse = glm::inverse(projectionMatrix * viewMatrix);
+
+	// Unproject the ray into view space
+	glm::vec4 rayView = viewProjectionInverse * rayClip;
+	rayView /= rayView.w;
+
+	// The ray direction is the vector from the camera position to the unprojected point
+	glm::vec3 rayDirection = glm::normalize(glm::vec3(rayView) - glm::vec3(viewMatrix[3]));
+
+	return rayDirection;
+}
 
 RenderSystem::RenderSystem(Engine& _engine)
-	: engine(_engine), shadowPass(nullptr), lightingPass(nullptr), geometryPass(nullptr), 
+	: engine(_engine), lightingPass(nullptr), geometryPass(nullptr), 
 	pointLightPass(nullptr), gBuffer(nullptr)
 {
 	// Create pipeline for rendering geomentry into G-buffer
@@ -46,6 +66,9 @@ RenderSystem::RenderSystem(Engine& _engine)
 
 	// Create pipeline for post processing
 	postProcessPass = new RenderPipeline("Post process pipeline", engine.Resource().shader("post_process_default"));
+
+
+	particlesPass = new RenderPipeline("Particles pipeline", engine.Resource().shader("particles_default"));
 
 	// Load debug shader
 	engine.Resource().loadShader("debug", "debug.frag", "debug.vert");
@@ -61,6 +84,13 @@ RenderSystem::RenderSystem(Engine& _engine)
 
 	// Create G-Buffer for deffered shadings
 	gBuffer = new GBuffer(engine.getPlatform().width, engine.getPlatform().height);
+
+	// Create the texture attachments for G-Buffer
+	gBuffer->addBuffer(BufferType::POSITION);
+	gBuffer->addBuffer(BufferType::NORMALS);
+	gBuffer->addBuffer(BufferType::ALBEDO);
+	gBuffer->addBuffer(BufferType::SPECULAR);
+	//gBuffer->addBuffer(BufferType::VIEW);
 
 	// Create framebuffer for rendering scene color
 	sceneColorFBO = new FrameBuffer(engine.getPlatform().width, engine.getPlatform().height);
@@ -82,6 +112,298 @@ RenderSystem::RenderSystem(Engine& _engine)
 //---------------------------------------------------------------\\
 //                    GEOMETRY PASS                              \\
 //----------------------------------------------------------------\\
+
+void RenderSystem::drawSpriteParticles()
+{
+	// Set viewport to G-Buffer size (Screen size)
+	//glViewport(0, 0, gBuffer->getWidth(), gBuffer->getHeight());
+
+	// Drawing to the G-Buffer frame buffer
+	//glBindFramebuffer(GL_FRAMEBUFFER, gBuffer->getBuffer());
+
+
+	// For every particle system in world
+	for (ParticleEmitter* system : engine.getWorld().particles)
+	{
+		system->update(engine);
+
+		RenderComponent* render = system->getComponent<RenderComponent>();
+		TransformComponent* transform = system->getComponent<TransformComponent>();
+
+		// For every particle in system
+		for (Particle& p : system->particles)
+		{
+			// The render component's mesh
+			Mesh* mesh = render->mesh;
+
+			// Mesh exists and particle is alive
+			if (mesh && p.life > 0.0f)
+			{
+				unsigned int nSubMeshes = mesh->nMeshes;
+
+				// For every sub-mesh in the mesh
+				for (unsigned int i = 0; i < nSubMeshes; i++)
+				{
+					unsigned int materialIndex = mesh->meshData[i].materialIndex;
+
+					// If sub-mesh material index is greater than # of material slots, set it to 
+					if (materialIndex >= render->materials.size())
+					{
+						materialIndex = 0;
+					}
+
+
+					// The material on this sub-mesh
+					Material* mat = render->materials[materialIndex];
+
+					// Material exists
+					if (mat)
+					{
+						mat->getShader()->UseShader();
+
+						// Make object model matrix
+						glm::mat4 modelMatrix(1.0f);
+						modelMatrix = glm::translate(modelMatrix, p.pos);
+						modelMatrix = glm::scale(modelMatrix, transform->scl * p.scale * glm::vec3(0.01f, 0.01f, 0.01f));
+
+						// Face camera
+						glm::vec3 look = normalize(engine.getWorld().eyePos - p.pos);
+						glm::vec3 right = cross(glm::vec3(0.0f, 0.0f, 1.0f), look);
+						glm::vec3 up2 = cross(look, right);
+						glm::mat4 lookTransform;
+						lookTransform[0] = glm::vec4(right, 0);
+						lookTransform[1] = glm::vec4(up2, 0);
+						lookTransform[2] = glm::vec4(look, 0);
+
+						modelMatrix *= lookTransform;
+
+
+						// Set model matrix uniform
+						int loc = glGetUniformLocation(mat->getShader()->programId, "ModelTr");
+						glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(modelMatrix));
+
+						//loc = glGetUniformLocation(mat->getShader()->programId, "hasDiffuseTexture");
+						//glUniform1i(loc, mat->hasDiffuseTexture);
+
+						//loc = glGetUniformLocation(mat->getShader()->programId, "hasNormalsTexture");
+						//glUniform1i(loc, mat->hasNormalsTexture);
+
+						// Set per sprite uniforms
+						SpriteUniforms spriteUnis;
+						spriteUnis.color = p.col;
+
+						// World specific uniforms
+						loc = glGetUniformLocation(mat->getShader()->programId, "WorldProj");
+						glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(engine.getWorld().worldProj));
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "WorldView");
+						glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(engine.getWorld().worldView));
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "WorldInverse");
+						glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(engine.getWorld().worldInverse));
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "time");
+						glUniform1f(loc, engine.getWorld().time);
+
+						geometryPass->setSpriteMaterialUniforms(engine, mat, spriteUnis);
+
+						
+
+						// Bind the VAO
+						glBindVertexArray(mesh->meshData[i].VAO);
+
+						// Draw the mesh
+						glDrawElements(GL_TRIANGLES, mesh->meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
+
+						// Un-bind the VAO
+						glBindVertexArray(0);
+
+						// Done using this materials shader
+						mat->getShader()->UnuseShader();
+					}
+
+				}
+
+			}
+		}
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+}
+
+void RenderSystem::drawMeshParticlesShadow(ShaderProgram* shader)
+{
+	
+	// For every particle system in world
+	for (ParticleEmitter* system : engine.getWorld().particles)
+	{
+		system->update(engine);
+
+		RenderComponent* render = system->getComponent<RenderComponent>();
+		TransformComponent* transform = system->getComponent<TransformComponent>();
+
+		// For every particle in system
+		for (Particle& p : system->particles)
+		{
+			// The render component's mesh
+			Mesh* mesh = render->mesh;
+
+			// Mesh exists and particle is alive
+			if (mesh && p.life > 0.0f)
+			{
+				unsigned int nSubMeshes = mesh->nMeshes;
+
+				// For every sub-mesh in the mesh
+				for (unsigned int i = 0; i < nSubMeshes; i++)
+				{
+					unsigned int materialIndex = mesh->meshData[i].materialIndex;
+
+					// If sub-mesh material index is greater than # of material slots, set it to 
+					if (materialIndex >= render->materials.size())
+					{
+						materialIndex = 0;
+					}
+
+					// Make object model matrix
+					glm::mat4 modelMatrix(1.0f);
+					modelMatrix = glm::translate(modelMatrix, p.pos);
+					modelMatrix = glm::rotate(modelMatrix, (transform->angle), transform->rot);
+					modelMatrix = glm::scale(modelMatrix, transform->scl * p.scale * glm::vec3(0.01f, 0.01f, 0.01f));
+
+					// Set model matrix uniform
+					int loc = glGetUniformLocation(shader->programId, "ModelTr");
+					glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(modelMatrix));
+
+					
+					// Set world specific uniforms
+					//geometryPass->setGeometryPassUnis(engine, geoPassUnis);
+
+					// Set material specific uniforms
+					//geometryPass->setMaterialUniforms(engine, mat);
+
+
+					loc = glGetUniformLocation(shader->programId, "diffuse.c");
+					glUniform4fv(loc, 1, &p.col[0]);
+
+					// Bind the VAO
+					glBindVertexArray(mesh->meshData[i].VAO);
+
+					// Draw the mesh
+					glDrawElements(GL_TRIANGLES, mesh->meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
+
+					// Un-bind the VAO
+					glBindVertexArray(0);
+
+					
+					
+
+				}
+
+			}
+		}
+	}
+}
+
+void RenderSystem::drawMeshParticles()
+{
+	// Set viewport to G-Buffer size (Screen size)
+	glViewport(0, 0, gBuffer->getWidth(), gBuffer->getHeight());
+
+	// Drawing to the G-Buffer frame buffer
+	glBindFramebuffer(GL_FRAMEBUFFER, gBuffer->getBuffer());
+
+	//glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+	//glEnable(GL_BLEND);
+
+	// For every particle system in world
+	for (ParticleEmitter* system : engine.getWorld().particles)
+	{
+		system->update(engine);
+
+		RenderComponent* render = system->getComponent<RenderComponent>();
+		TransformComponent* transform = system->getComponent<TransformComponent>();
+
+		// For every particle in system
+		for (Particle& p : system->particles)
+		{
+			// The render component's mesh
+			Mesh* mesh = render->mesh;
+
+			// Mesh exists and particle is alive
+			if (mesh && p.life > 0.0f)
+			{
+				unsigned int nSubMeshes = mesh->nMeshes;
+
+				// For every sub-mesh in the mesh
+				for (unsigned int i = 0; i < nSubMeshes; i++)
+				{
+					unsigned int materialIndex = mesh->meshData[i].materialIndex;
+
+					// If sub-mesh material index is greater than # of material slots, set it to 
+					if (materialIndex >= render->materials.size())
+					{
+						materialIndex = 0;
+					}
+
+
+					// The material on this sub-mesh
+					Material* mat = render->materials[materialIndex];
+
+					// Material exists
+					if (mat)
+					{
+						mat->getShader()->UseShader();
+
+						// Make object model matrix
+						glm::mat4 modelMatrix(1.0f);
+						modelMatrix = glm::translate(modelMatrix, p.pos);
+						modelMatrix = glm::rotate(modelMatrix, (transform->angle), transform->rot);
+						modelMatrix = glm::scale(modelMatrix, transform->scl * p.scale * glm::vec3(0.01f, 0.01f, 0.01f));
+
+						// Set model matrix uniform
+						int loc = glGetUniformLocation(mat->getShader()->programId, "ModelTr");
+						glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(modelMatrix));
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "hasDiffuseTexture");
+						glUniform1i(loc, mat->hasDiffuseTexture);
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "hasNormalsTexture");
+						glUniform1i(loc, mat->hasNormalsTexture);
+
+						// Set world specific uniforms
+						geometryPass->setGeometryPassUnis(engine, geoPassUnis);
+
+						// Set material specific uniforms
+						geometryPass->setMaterialUniforms(engine, mat);
+
+
+						
+
+
+						loc = glGetUniformLocation(mat->getShader()->programId, "diffuse.c");
+						glUniform4fv(loc, 1, &p.col[0]);
+
+						// Bind the VAO
+						glBindVertexArray(mesh->meshData[i].VAO);
+
+						// Draw the mesh
+						glDrawElements(GL_TRIANGLES, mesh->meshData[i].indices.size(), GL_UNSIGNED_INT, 0);
+
+						// Un-bind the VAO
+						glBindVertexArray(0);
+
+						// Done using this materials shader
+						mat->getShader()->UnuseShader();
+					}
+
+				}
+
+			}
+		}
+	}
+}
+
 
 void RenderSystem::doGeometryPass(Engine& engine)
 {
@@ -109,8 +431,7 @@ void RenderSystem::doGeometryPass(Engine& engine)
 			geoPassUnis.worldProj = engine.getWorld().worldProj;
 			geoPassUnis.worldInverse = engine.getWorld().worldInverse;
 
-
-
+			
 			// For every entity in world
 			for (Entity* e : engine.getWorld().entities)
 			{
@@ -195,13 +516,39 @@ void RenderSystem::doGeometryPass(Engine& engine)
 					}
 				}
 			}
-
 			glDisable(GL_POLYGON_OFFSET_FILL);
+
+			// ------ Render Particles ------ \\
+
+			// Set viewport to G-Buffer size (Screen size)
+			glViewport(0, 0, gBuffer->getWidth(), gBuffer->getHeight());
+
+			// Drawing to the G-Buffer frame buffer
+			glBindFramebuffer(GL_FRAMEBUFFER, gBuffer->getBuffer());
+			
+			//glEnable(GL_BLEND);
+			//glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+			
+			//glDepthFunc(GL_ALWAYS);
+			drawMeshParticles();
+
+			glDisable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+			glDepthFunc(GL_LESS);
+			
 
 			// Bind default framebuffer
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+			
+
 		}
+
+		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		//glDisable(GL_BLEND);
+		
+
 	}
 }
 
@@ -299,6 +646,10 @@ void RenderSystem::doPointLightShadowPass(Engine& engine)
 				}
 			}
 		}
+
+		
+
+		drawMeshParticlesShadow(pointLightPass->shader);
 
 		light->getShadowFBO()->UnbindFBO();
 	}
@@ -414,17 +765,23 @@ void RenderSystem::doPostProcessPass(Engine& engine)
 }
 
 
+
+
+
+
+
 //-------------\\
 // DEBUG PASS \\
 //-------------\\
 
 void RenderSystem::doDebugPass(Engine& engine)
 {
-	//debugSphere.draw(engine.getWorld().entities[3],engine.getWorld().eye, lightingPass->shader);
-	//debugTriangles.draw(engine.getWorld().entities[3], lightingPass->shader);
+	
 
 	if (debugShader)
 	{
+		glDisable(GL_DEPTH_TEST);
+
 		debugShader->UseShader();
 
 		int loc = glGetUniformLocation(debugShader->programId, "WorldProj");
@@ -436,7 +793,9 @@ void RenderSystem::doDebugPass(Engine& engine)
 		loc = glGetUniformLocation(debugShader->programId, "WorldInverse");
 		glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(engine.getWorld().worldInverse));
 
+		
 
+		// Draw stuff on delected entity
 		if (engine.selectedEntity)
 		{
 			TransformComponent* transform = engine.selectedEntity->getComponent<TransformComponent>();
@@ -456,22 +815,40 @@ void RenderSystem::doDebugPass(Engine& engine)
 				debugSphere.needsUpdate = true;
 			}
 
-
-			debugAABB.draw(engine.selectedEntity, debugShader);
+			//glEnable(GL_DEPTH_TEST);
+			//debugAABB.draw(engine.selectedEntity, debugShader);
 
 			glDisable(GL_DEPTH_TEST);
 			debugGimbal.draw(engine.selectedEntity, debugShader);
+
+			/*
+			glm::vec3 rayDir = getRayDirection(engine.getPlatform().width, engine.getPlatform().height, 
+				engine.getPlatform().mouseX,engine.getPlatform().mouseY, engine.getWorld().worldView, 
+				engine.getWorld().worldProj);
+
+			glm::vec3 from = engine.getWorld().eyePos + glm::vec3(1.0f, 0.0f, 0.0f);
+			//glm::vec3 to = from - rayDir * 90.0f;
+			glm::vec3 to = { 1.0f, 1.0f, 1.0f };
+			//glm::vec3 from = { 0.0f, 0.0f, 0.0f };
+			//glm::vec3 to = { 0.0f, 0.0f, 20.0f };
+
+			//debugGimbal.drawLine(from, to, debugShader);
+
+			*/
+
 			//debugTriangles.draw(engine.selectedEntity, debugShader);
 			//debugSphere.draw(engine.selectedEntity, engine.getWorld().eye, debugShader);
 		}
-
+		
 		//debugGimbal.draw(engine.getWorld().lightPos, debugShader);
 
-		
+		//drawTriangleAABB();
+		//drawBVHTreeDebug();
 
+		
 	}
 
-	drawBVHTreeDebug();
+	
 
 	
 
@@ -490,6 +867,10 @@ void RenderSystem::update(Engine& engine)
 	// Render scene from light perspective
 	//doDirectionalShadowPass(engine);
 
+
+	
+
+
 	// Render scene from point light perspective
 	doPointLightShadowPass(engine);
 
@@ -498,6 +879,36 @@ void RenderSystem::update(Engine& engine)
 
 	// Render deferred lighting
 	doLightingPass(engine);
+
+
+	/*
+	if (engine.mode == EngineMode::TERRAIN)
+	{
+		Platform& platform = engine.getPlatform();
+
+		int u = static_cast<int>(platform.mouseX);
+		int v = static_cast<int>(platform.mouseY);
+
+		int width = static_cast<int>(platform.width);
+		int height = static_cast<int>(platform.height);
+
+		//GLubyte* pixels = new GLubyte[4 * width * height];
+
+		GLubyte pixel[4];
+
+		// Read positions
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+		glReadPixels(u, v, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+
+		glm::vec3 mousePos = { pixel[0], pixel[1], pixel[2] };
+
+		engine.getWorld().mouseWorldPos = mousePos;
+
+		//std::cout << "x: " << mousePos.x << "\ny: " << mousePos.y << "\n:z: " << mousePos.z << "\n\n";
+
+	}
+	*/
 
 	// Apply post processing
 	doPostProcessPass(engine);
@@ -508,6 +919,187 @@ void RenderSystem::update(Engine& engine)
 
 
 	
+}
+
+void RenderSystem::drawTriangleAABB()
+{
+	
+	std::vector<Box3D*>& objList = engine.getWorld().objList;
+
+	int i = 0;
+	for (Box3D* box : objList)
+	{
+		if (box)
+		{
+			glm::vec3 minP = box->center - box->extents;
+			glm::vec3 maxP = box->center + box->extents;
+
+			glm::mat4 transform = Translate(minP) * Scale(maxP - minP);
+
+			glm::vec3 color = { 1.0f, 0.0f, 0.0f };
+
+			// Set lines color for fragment shader
+			int loc = glGetUniformLocation(debugShader->programId, "diffuse");
+			glUniform3fv(loc, 1, &color[0]);
+
+			// Set transformation for vertex shader
+			loc = glGetUniformLocation(debugShader->programId, "ModelTr");
+			glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
+
+			if (i == (int)engine.debug.float2)
+			{
+				// Draw
+				glBindVertexArray(debugAABB.vaoID);
+				glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+				glBindVertexArray(0);
+			}
+		}
+		else
+		{
+			std::cout << "BOX NO EXIST\n";
+		}
+
+		
+
+
+		i++;
+	}
+}
+
+void RenderSystem::drawTreeLeaves(TreeNode* node, int level)
+{
+	if (level >= 800)
+		return;
+
+	if (node)
+	{
+		glm::vec3 color = { 0.0f, 0.0f, 1.0f };
+
+		if (node->left->type == NodeType::LEAF && node->right->type == NodeType::LEAF)
+			color = { 1.0f, 0.0f, 1.0f };
+		else if(node->left->type == NodeType::LEAF)
+			color = { 0.0f, 0.0f, 1.0f };
+		else if (node->left->type == NodeType::LEAF)
+			color = { 1.0f, 1.0f, 0.0f };
+
+		if (node->left->type == NodeType::LEAF || node->right->type == NodeType::LEAF)
+		{
+
+			Box3D* box = node->box;
+
+			glm::vec3 minP = box->center - box->extents;
+			glm::vec3 maxP = box->center + box->extents;
+
+			glm::mat4 transform = Translate(minP) * Scale(maxP - minP);
+
+			// Set lines color for fragment shader
+			int loc = glGetUniformLocation(debugShader->programId, "diffuse");
+			glUniform3fv(loc, 1, &color[0]);
+
+			// Set transformation for vertex shader
+			loc = glGetUniformLocation(debugShader->programId, "ModelTr");
+			glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
+
+
+			// Draw
+			glBindVertexArray(debugAABB.vaoID);
+			glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
+
+			// Recurse
+			drawTreeLeaves(node->right, ++level);
+			drawTreeLeaves(node->left, level);
+		}
+	}
+}
+
+
+static glm::vec3 randomColor(float x)
+{
+	return glm::vec3(
+		0.5f + 0.5f * cosf(x), 
+		0.5f + 0.5f * cosf(x * 2.2f + 0.1f),
+		0.5f + 0.5f * cosf(x * 5.5f + 1.5f)
+	);
+}
+
+void RenderSystem::drawTreeRec(TreeNode* node, int level, int maxLevel)
+{
+	if (level > maxLevel)
+		return;
+
+	if (node )
+	{
+		glm::vec3 color = { 0.0f, 0.0f, 0.0f };
+		
+		float x = static_cast<float>(level);
+
+		color = randomColor(x * 4.0f);
+
+		if (node->type == NodeType::LEAF)
+		{
+			color = { 1.0f, 1.0f, 1.0f };
+		}
+
+		Box3D* box = node->box;
+
+		glm::vec3 minP = box->center - box->extents;
+		glm::vec3 maxP = box->center + box->extents;
+
+		glm::mat4 transform = Translate(minP) * Scale(maxP - minP);
+
+		// Set lines color for fragment shader
+		int loc = glGetUniformLocation(debugShader->programId, "diffuse");
+		glUniform3fv(loc, 1, &color[0]);
+
+		// Set transformation for vertex shader
+		loc = glGetUniformLocation(debugShader->programId, "ModelTr");
+		glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
+
+
+		// Draw
+		if (level == maxLevel)
+		{
+			glBindVertexArray(debugAABB.vaoID);
+			glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
+		}
+		// Recurse
+		drawTreeRec(node->right, ++level, maxLevel);
+		drawTreeRec(node->left, level, maxLevel);
+
+	}
+}
+
+void RenderSystem::drawBVHTreeDebug()
+{
+	drawTreeRec(engine.getWorld().bvh, 0, (int)engine.debug.float1);
+
+	//drawTreeLeaves(engine.getWorld().bvh, 0);
+}
+
+
+
+
+
+RenderSystem::~RenderSystem()
+{
+	if (geometryPass)
+	{
+		delete geometryPass;
+		geometryPass = nullptr;
+	}
+	
+	if (lightingPass)
+	{
+		delete lightingPass;
+		lightingPass = nullptr;
+	}
+	if (pointLightPass)
+	{
+		delete pointLightPass;
+		pointLightPass = nullptr;
+	}
 }
 
 
@@ -580,89 +1172,15 @@ void RenderSystem::doDirectionalShadowPass(Engine& engine)
 }
 */
 
-void RenderSystem::drawTreeRec(TreeNode* node, int level, int maxLevel)
+GBuffer* RenderSystem::getGBuffer()
 {
-	if (level >= maxLevel)
-		return;
-
-	if (node)
+	if (gBuffer)
 	{
-
-		glm::vec3 color = { 0.0f, 0.0f, 0.0f };
-		if (level == 0)
-			color = { 1.0f, 0.0f, 0.0f };
-		else if (level == 1)
-			color = { 0.0f, 1.0f, 0.0f };
-		else if (level == 2)
-			color = { 0.0f, 0.0f, 1.0f };
-		else if (level == 3)
-			color = { 1.0f, 1.0f, 1.0f };
-		else if (level == 4)
-			color = { 0.0f, 0.0f, 1.0f };
-		else if (level == 5)
-			color = { 1.0f, 0.0f, 1.0f };
-		else if (level == 6)
-			color = { 0.0f, 1.0f, 1.0f };
-
-
-
-		Box3D* box = node->box;
-
-		glm::vec3 minP = box->center - box->extents;
-		glm::vec3 maxP = box->center + box->extents;
-
-		glm::mat4 transform = Translate(minP) * Scale(maxP - minP);
-
-		// Set lines color for fragment shader
-		int loc = glGetUniformLocation(debugShader->programId, "diffuse");
-		glUniform3fv(loc, 1, &color[0]);
-
-		// Set transformation for vertex shader
-		loc = glGetUniformLocation(debugShader->programId, "ModelTr");
-		glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(transform));
-
-
-		// Draw
-		glBindVertexArray(debugAABB.vaoID);
-		glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
-		glBindVertexArray(0);
-
-		// Recurse
-		drawTreeRec(node->right, ++level, maxLevel);
-		drawTreeRec(node->left, level, maxLevel);
-
+		return gBuffer;
 	}
-}
-
-void RenderSystem::drawBVHTreeDebug()
-{
-	drawTreeRec(engine.getWorld().bvh, 0, (int)engine.debug.float1);
-}
-
-
-
-
-
-RenderSystem::~RenderSystem()
-{
-	if (geometryPass)
+	else
 	{
-		delete geometryPass;
-		geometryPass = nullptr;
-	}
-	if (shadowPass)
-	{
-		delete shadowPass;
-		shadowPass = nullptr;
-	}
-	if (lightingPass)
-	{
-		delete lightingPass;
-		lightingPass = nullptr;
-	}
-	if (pointLightPass)
-	{
-		delete pointLightPass;
-		pointLightPass = nullptr;
+		Log::error("Can't get G-Buffer because it's null!");
+		return nullptr;
 	}
 }

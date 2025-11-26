@@ -3,8 +3,6 @@
 
 out vec4 FragColor;
 
-in float d1;
-in float d2;
 
 uniform vec3 diffuse;
 
@@ -13,10 +11,8 @@ uniform vec3 diffuse;
 void main()
 {
     vec3 col = diffuse;
-
-    //if(d1 < d2)
-        //col = vec3(1., 0., 0.);
-
-    FragColor.xyz = col;
+   
+    FragColor = vec4(col, 1.0);
+    
     return;
 }

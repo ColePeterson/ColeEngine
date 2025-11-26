@@ -29,6 +29,7 @@ public:
 
     void createVAO();
     void draw(Entity* entity, ShaderProgram* program);
+    void draw(glm::vec3 pos, glm::vec3 scale, ShaderProgram* program);
 
     glm::vec3 color; 
 
@@ -96,7 +97,7 @@ class DebugTriangles
 public:
 
     DebugTriangles()
-        : color({ 0.0f, 1.0f, 1.0f })
+        : color({ 0.9f, 0.9f, 0.9f })
     {
 
     };
@@ -132,6 +133,8 @@ public:
     void createVAO();
     void draw(Entity* entity, ShaderProgram* program);
     void draw(glm::vec3 pos, ShaderProgram* program);
+
+    void drawLine(glm::vec3 from, glm::vec3 to, ShaderProgram* program);
 
     glm::mat4 makeTransform(Entity* entity);
 

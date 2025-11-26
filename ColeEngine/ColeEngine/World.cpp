@@ -8,12 +8,14 @@
 #include "Logging.h"
 #include "Serialization.h"
 
+#include "ParticleEmitter.h"
+
 #include <algorithm>
 #include <glm/ext.hpp>
 
 
 World::World(Platform& _platform, ResourceManager& _resource)
-    : platform(_platform), resource(_resource), last_time(glfwGetTime())
+    : platform(_platform), resource(_resource), last_time(glfwGetTime()), playerEntity(nullptr)
 {
 
 }
@@ -23,6 +25,82 @@ World::~World()
 
 }
 
+static glm::vec3 getRayDirection(int screenWidth, int screenHeight, double mouseX, double mouseY, glm::mat4 viewMatrix, glm::mat4 projectionMatrix)
+{
+    // Convert mouse coordinates to NDC (Normalized Device Coordinates)
+    //float ndcX = (2.0f * mouseX) / (static_cast<float>(screenWidth) - 1.0f);
+    //float ndcY = 1.0f - (2.0f * mouseY) / static_cast<float>(screenHeight);
+    float ndcX = 0.0f;
+    float ndcY = 0.0f;
+    // Create a ray in clip space
+    glm::vec4 rayClip(ndcX, ndcY, 0.0f, 1.0f);
+
+    glm::mat4 viewProjectionInverse = glm::inverse(projectionMatrix * viewMatrix);
+
+    // Unproject the ray into view space
+    glm::vec4 rayView = viewProjectionInverse * rayClip;
+    rayView /= rayView.w;
+
+    // The ray direction is the vector from the camera position to the unprojected point
+    glm::vec3 rayDirection = glm::normalize(glm::vec3(rayView) - glm::vec3(viewMatrix[3]));
+
+    return rayDirection;
+}
+
+static Box3D* computeBV(std::vector<Box3D*>& objects)
+{
+    Box3D* box = new Box3D();
+
+    if (box)
+    {
+        glm::vec3 minPoint = { 999999.0f, 999999.0f, 999999.0f };
+        glm::vec3 maxPoint = { -999999.0f, -999999.0f, -999999.0f };
+        glm::vec3 avg = { 0.0f, 0.0f, 0.0f };
+
+        unsigned int size = objects.size();
+
+        for (unsigned int i = 0; i < size; i++)
+        {
+            glm::vec3 center = objects[i]->center;
+
+            minPoint = glm::min(minPoint, center - objects[i]->extents * 0.5f);
+            maxPoint = glm::max(maxPoint, center + objects[i]->extents * 0.5f);
+
+            avg += center;
+        }
+
+        avg /= glm::vec3((float)size, (float)size, (float)size);
+
+        box->center = avg;
+        box->extents = glm::abs(maxPoint - minPoint) / 2.0f;
+
+        return box;
+    }
+    else
+        return nullptr;
+
+}
+
+
+// Sorts the list of objects based on the center point of the aabb olong the axis of greatest spread (the greatest dimension of the aabb)
+static void sortObjects(Box3D* bv, std::vector<Box3D*>& objects)
+{
+    if (bv)
+    {
+        if (bv->extents.x > bv->extents.y && bv->extents.x > bv->extents.z) // Split axis is X axis
+        {
+            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.x < b->center.x; });
+        }
+        else if (bv->extents.y > bv->extents.x && bv->extents.y > bv->extents.z) // Split axis is Y axis
+        {
+            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.y < b->center.y; });
+        }
+        else if (bv->extents.z > bv->extents.x && bv->extents.z > bv->extents.y) // Split axis is Z axis
+        {
+            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.z < b->center.z; });
+        }
+    }
+}
 
 Mesh* World::importFBX(std::string path)
 {
@@ -170,22 +248,30 @@ void World::initWorld()
     triangleCount = 0;
     bvh = nullptr;
 
+    mouseWorldPos = { 0.0f, 0.0f, 0.0f };
 
     // Load all shaders
     resource.loadShader("geometry_default", "geo_pass.frag", "geo_pass.vert");
     resource.loadShader("lighting", "lighting.frag", "lighting.vert");
     resource.loadShader("point_shadows_default", "PointLightShadow.frag", "PointLightShadow.vert", "PointLightShadow.geom");
     resource.loadShader("post_process_default", "PostProcess.frag", "PostProcess.vert");
+    resource.loadShader("particles_default", "particles.frag", "particles.vert");
+
     //  resource.loadShader("shadows_default", "shadow.frag", "shadow.vert");
     //resource.loadShader("skydome", "skydome.frag", "skydome.vert");
     
-
-    // Make VAO's for basic shapes
-    //Shape* sphereShape = new Sphere(24);
-   
-    Mesh* matTestMesh = importFBX("assets/mesh/guitar_unpacked.fbx");
+    Mesh* guitarMesh = importFBX("assets/mesh/monkey.fbx");
+    Mesh* spheresMesh = importFBX("assets/mesh/sphere.fbx");
+    Mesh* spriteMesh = importFBX("assets/mesh/sprite_zUp.fbx");
     Mesh* sponzaMesh = importFBX("assets/mesh/playground.fbx");
     Mesh* skyMesh = importFBX("assets/mesh/skySphere.fbx");
+
+    
+    Mesh* terrainMesh = new MeshTerrain(3000.0f, 128, 2.0f);
+    MeshTerrain* tRef = reinterpret_cast<MeshTerrain*>(terrainMesh);
+    tRef->loadHeightMap("assets/textures/heightmap2.jpg");
+    tRef->applyHeightMap();
+    
 
     // Set sky texture
     resource.setSkyTexture(resource.getTexture("assets/textures/hdri/kloofendal_43d_clear_2k.hdr"));
@@ -199,8 +285,8 @@ void World::initWorld()
     resource.getMaterial("mat_concrete")->vVec2["textureScale"] = Vec2Param(glm::vec2(5.0f, 5.0f), glm::vec2(0.0f, 0.0f), glm::vec2(20.0f, 20.0f));
     resource.getMaterial("mat_concrete")->vFloat["shininess"] = FloatParam(120.0f, 0.2f, 500.0f);
     resource.getMaterial("mat_concrete")->vFloat["normalStrength"] = FloatParam(48.0f, 0.0f, 60.5f);
-    resource.getMaterial("mat_concrete")->vColor["diffuse"] = Color3(1.0f, 1.0f, 1.0f); // Diffuse color
-    resource.getMaterial("mat_concrete")->vColor["specular"] = Color3(1.0f, 1.0f, 1.0f); // Specular color
+    resource.getMaterial("mat_concrete")->vColor["diffuse"] = Color4(1.0f, 1.0f, 1.0f, 1.0f); // Diffuse color
+    resource.getMaterial("mat_concrete")->vColor["specular"] = Color4(1.0f, 1.0f, 1.0f, 1.0f); // Specular color
     resource.getMaterial("mat_concrete")->hasDiffuseTexture = true;
     resource.getMaterial("mat_concrete")->hasNormalsTexture = true;
 
@@ -216,7 +302,7 @@ void World::initWorld()
 
     // Create point light transform component 2
     TransformComponent* plTrn2 = new TransformComponent();
-    plTrn2->pos = { 1.0f, -19.0f, 4.0f };
+    plTrn2->pos = { 0.0f, 4.0f, 6.0f };
     plTrn2->scl = { 1.0f, 1.0f, 1.0f };
 
     // Create point light 2
@@ -239,7 +325,7 @@ void World::initWorld()
 
     // Create point light transform component 2
     TransformComponent* plTrn1 = new TransformComponent();
-    plTrn1->pos = { -4.0f, 20.0f, 4.0f };
+    plTrn1->pos = { -4.0f, -13.0f, 6.0f };
     plTrn1->scl = { 1.0f, 1.0f, 1.0f };
 
     // Create point light 2
@@ -254,7 +340,7 @@ void World::initWorld()
 
 
     // Create plane entity
-    Entity* terrainEntity = new Entity("Sponza");
+    Entity* terrainEntity = new Entity("Terrain");
 
     // Transform for sponza entity
     TransformComponent* trTerrain = new TransformComponent();
@@ -263,21 +349,51 @@ void World::initWorld()
     trTerrain->scl = glm::vec3(1.0f, 1.0f, 1.0f);
     // Renderer for plane entity
     RenderComponent* rndrSponzaTerrain = new RenderComponent();
-    rndrSponzaTerrain->mesh = sponzaMesh;
-
+    rndrSponzaTerrain->mesh = terrainMesh;
     rndrSponzaTerrain->setMaterial(resource.getMaterial("mat_concrete"), terrainEntity, 0);
-    rndrSponzaTerrain->setMaterialsFromMesh(&resource);
+    //rndrSponzaTerrain->setMaterialsFromMesh(&resource);
+
+    
+    // Terrain component
+    TerrainComponent* tComp = new TerrainComponent();
+    tComp->size = 3000.0f;
+    tComp->height = 1.0f;
+    tComp->resolution = 128;
 
     // Add components to plane entity
     terrainEntity->addComponent(trTerrain);
     terrainEntity->addComponent(rndrSponzaTerrain);
-
-    // Add plane to world
+    terrainEntity->addComponent(tComp);
+    
+    
+   // terrainEntity->addComponent(trTerrain);
+    //terrainEntity->addComponent(rndrSponzaTerrain);
+    
     entities.push_back(terrainEntity);
     
 
+    // Particle system test
+    resource.createNewMaterial("mat_sprite", resource.shader("particles_default"));
+    resource.getMaterial("mat_sprite")->vTexture["sprite_texture"] = resource.getTexture("assets/textures/sprite.png");
 
+    TransformComponent* trPart = new TransformComponent();
+    trPart->pos = glm::vec3(0.0f, 0.0f, 4.5f);
+    trPart->scl = glm::vec3(1.0f, 1.0f, 1.0f);
 
+    RenderComponent* rndrPart= new RenderComponent();
+    rndrPart->mesh = spheresMesh;
+    
+    ParticleEmitter* pSystem = new ParticleEmitter("particle system", 3, 100);
+
+    rndrPart->setMaterial(resource.getMaterial("mat_concrete"), pSystem, 0);
+
+    pSystem->addComponent(trPart);
+    pSystem->addComponent(rndrPart);
+
+    pSystem->init();
+
+    particles.push_back(pSystem);
+    
     //Serialization::Serialize(resource.getMaterial("mat_concrete"), ObjectType::MATERIAL);
     
 
@@ -295,6 +411,7 @@ void World::initWorld()
     // Renderer for skybox entity
     RenderComponent* rndrSky = new RenderComponent();
     rndrSky->mesh = skyMesh;
+    rndrSky->isSky = true;
     rndrSky->setMaterial(resource.getMaterial("mat_concrete"), skyBox, 0);
 
     // Add components to skybox entity
@@ -308,18 +425,20 @@ void World::initWorld()
 
 
     // Monkey entity
+    
+    
     Entity* monk = new Entity("monkey");
 
     TransformComponent* trMonk = new TransformComponent();
-    trMonk->pos = glm::vec3(0.0f, 14.0f, 0.0f);
-    trMonk->scl = glm::vec3(8.0f, 8.0f, 8.0f);
+    trMonk->pos = glm::vec3(0.0f, 13.0f, 6.5f);
+    trMonk->scl = glm::vec3(2.0f, 2.0f, 2.0f);
 
     RenderComponent* rndrMonk = new RenderComponent();
-    rndrMonk->mesh = matTestMesh;
+    rndrMonk->mesh = guitarMesh;
 
     rndrMonk->setMaterialsFromMesh(&resource);
 
-   // rndrMonk->setMaterial(resource.getMaterial("mat_concrete"), monk);
+   //rndrMonk->setMaterial(resource.getMaterial("mat_concrete"), monk, 0);
     //rndrMonk->setMaterial(importMat, monk);
 
     monk->addComponent(trMonk);
@@ -349,24 +468,36 @@ void World::initWorld()
     entities.push_back(player);
 
 
-   // Log::info("Creating AABB list...");
-   // createAABBlist();
-    //createAABBlist2();
+    playerEntity = player;
 
-   // std::cout << "Number of triangle AABB's: " << objList.size() << "\n\n";
 
-   // Log::info("Creating BVH tree...");
-   // bvh = createBVH(objList, 0);
+    //createBvhObjects();
+
+    std::cout << "Number of triangle AABB's: " << objList.size() << "\n\n";
+
+    if (objList.size() > 0)
+    {
+        Log::info("Creating BVH tree...");
+        //bvh = createBVH(objList, 0);
+    }
+
+    //std::cout << "max leaf depth: " << maxLeafDepth << "\nmin leaf depth: " << minLeafDepth << "\n\n";
 
 }
 
-void World::updateTransforms(glm::vec3 eye, float tilt, float spin)
+void World::updateTransforms(glm::vec3 eye, glm::vec3 center, float tilt, float spin)
 {
-    worldView = Rotate(0, tilt - 90) * Rotate(2, spin) * Translate(-eye[0], -eye[1], -eye[2]);
+    glm::mat4 viewMatrix = glm::lookAt(eye, center, glm::vec3(0.0f, 0.0f, 1.0f));
+    worldView = viewMatrix;
+
+    //worldView = Rotate(0, tilt - 90) * Rotate(2, spin) * Translate(-eye[0], -eye[1], -eye[2]);
     worldProj = Perspective((ry * platform.width) / platform.height, ry, front, back);
     worldInverse = glm::inverse(worldView);
     eyePos = eye;
+
+
 }
+
 
 
 
@@ -376,10 +507,13 @@ void World::update()
     time_dx = now - last_time;
     time += time_dx;
     last_time = now;
+
 }
 
 
-void World::createAABBlist()
+
+
+void World::createBvhObjects()
 {
     objList.clear();
 
@@ -393,67 +527,9 @@ void World::createAABBlist()
         if (!renderComp)
             continue;
 
-        glm::mat4 modelTr = glm::mat4(1.0f);
-        modelTr = glm::translate(modelTr, transformComp->pos);
-        modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
-        modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
-
-        glm::vec3 minPoint = { 9999.0f, 9999.0f, 9999.0f };
-        glm::vec3 maxPoint = { -9999.0f, -9999.0f, -9999.0f};
-        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f};
-        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
-
-        //std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
-        //std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
-        
-        std::vector<std::vector<Vertex>> vertices;
-        std::vector < std::vector<unsigned int>> indices;
-
-        for (int i = 0; i < vertices.size(); i++)
-        {
-            for (int j = 0; j < vertices[i].size(); j++)
-            {
-                glm::vec3& p = vertices[i][j].position;
-                glm::vec4 p4 = modelTr * glm::vec4( p.x, p.y, p.z, 1.0f);
-
-                minPoint = glm::min(glm::vec3(p4.x, p4.y, p4.z), minPoint);
-                maxPoint = glm::max(glm::vec3(p4.x, p4.y, p4.z), maxPoint);
-            }
-        }
-
-        dim.x = glm::abs(maxPoint.x - minPoint.x);
-        dim.y = glm::abs(maxPoint.y - minPoint.y);
-        dim.z = glm::abs(maxPoint.z - minPoint.z);
-
-        centerPoint = maxPoint - dim * 0.5f;
-
-        Box3D* box = new Box3D(centerPoint, dim * 0.5f, reinterpret_cast<void*>(e));
-
-        AABBComponent* aabb = new AABBComponent();
-
-        if (aabb)
-        {
-            aabb->box = box;
-            e->addComponent(aabb);
-        }
-    }
-
-}
-
-void World::createAABBlist2()
-{
-    objList.clear();
-
-    triangleCount = 0;
-    for (Entity* e : entities)
-    {
-        TransformComponent* transformComp = e->getComponent<TransformComponent>();
-        RenderComponent* renderComp = e->getComponent<RenderComponent>();
-        PlayerComponent* playerComp = e->getComponent<PlayerComponent>();
-
-        if (!renderComp)
+        // Skip if its the sky
+        if (renderComp->isSky)
             continue;
-
 
         Mesh* mesh = renderComp->mesh;
 
@@ -463,13 +539,7 @@ void World::createAABBlist2()
         modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
         modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
 
-        glm::vec4 minPoint = { 9999.0f, 9999.0f, 9999.0f, 1.0f };
-        glm::vec4 maxPoint = { -9999.0f, -9999.0f, -9999.0f, 1.0f };
-        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
-
-      
-
+       
         // For every sub-mesh on mesh
         for (unsigned int i = 0; i < mesh->nMeshes; i++)
         {
@@ -479,27 +549,26 @@ void World::createAABBlist2()
             // For triangle on mesh
             for (unsigned int j = 0; j < mesh->meshData[i].indices.size(); j+=3)
             {
+                glm::vec4 minPoint = { 9999.0f, 9999.0f, 9999.0f, 1.0f };
+                glm::vec4 maxPoint = { -9999.0f, -9999.0f, -9999.0f, 1.0f };
+                glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
+                glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
+
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->meshData[i].EBO);
-
-                // Retrieve the indices from the index buffer
-                //unsigned int* indices = new unsigned int[3];
-                //glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(unsigned int) * 3, indices);
-
-                // Get points of triangle in world space
-                //glm::vec4 A = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[0]].position, 1.0f);
-                //glm::vec4 B = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[1]].position, 1.0f);
-                //glm::vec4 C = modelTr * glm::vec4(mesh->meshData[i].vertices[indices[2]].position, 1.0f);
-
 
                 unsigned int index0 = mesh->meshData[i].indices[j];
                 unsigned int index1 = mesh->meshData[i].indices[j+1];
                 unsigned int index2 = mesh->meshData[i].indices[j+2];
 
-                // Get points of triangle in world space
-                glm::vec4 A = modelTr * glm::vec4(mesh->meshData[i].vertices[index0].position, 1.0f);
-                glm::vec4 B = modelTr * glm::vec4(mesh->meshData[i].vertices[index1].position, 1.0f);
-                glm::vec4 C = modelTr * glm::vec4(mesh->meshData[i].vertices[index2].position, 1.0f);
+                // Triangle vertices 
+                glm::vec3 v0 = mesh->meshData[i].vertices[index0].position;
+                glm::vec3 v1 = mesh->meshData[i].vertices[index1].position;
+                glm::vec3 v2 = mesh->meshData[i].vertices[index2].position;
 
+                // Triangle vertices in world space
+                glm::vec4 A = modelTr * glm::vec4(v0, 1.0f);
+                glm::vec4 B = modelTr * glm::vec4(v1, 1.0f);
+                glm::vec4 C = modelTr * glm::vec4(v2, 1.0f);
 
                 // Get min point
                 minPoint = glm::min(A, minPoint);
@@ -536,114 +605,7 @@ void World::createAABBlist2()
 
 }
 
-static Box3D* computeBV(std::vector<Box3D*>& objects)
-{
-    Box3D* box = new Box3D();
 
-    if (box)
-    {
-        glm::vec3 minPoint = { 999999.0f, 999999.0f, 999999.0f };
-        glm::vec3 maxPoint = { -999999.0f, -999999.0f, -999999.0f };
-        glm::vec3 avg = { 0.0f, 0.0f, 0.0f };
-
-        unsigned int size = objects.size();
-
-        for (unsigned int i = 0; i < size; i++)
-        {
-            glm::vec3 center = objects[i]->center;
-
-            minPoint = glm::min(minPoint, center - objects[i]->extents * 0.25f);
-            maxPoint = glm::max(maxPoint, center + objects[i]->extents * 0.25f);
-
-            avg += center;
-        }
-
-        avg /= glm::vec3((float)size, (float)size, (float)size);
-
-        box->center = avg;
-        box->extents = glm::abs(maxPoint - minPoint) / 2.0f;
-
-        return box;
-    }
-    else
-        return nullptr;
-
-}
-
-
-void World::createBvhObjects()
-{
-
-    for (Entity* e : entities)
-    {
-        TransformComponent* transformComp = e->getComponent<TransformComponent>();
-        RenderComponent* renderComp = e->getComponent<RenderComponent>();
-
-        if (!renderComp)
-            continue;
-
-        glm::mat4 modelTr = glm::mat4(1.0f);
-        modelTr = glm::translate(modelTr, transformComp->pos);
-        modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
-        modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
-
-        glm::vec3 minPoint = { 9999.0f, 9999.0f, 9999.0f };
-        glm::vec3 maxPoint = { -9999.0f, -9999.0f, -9999.0f };
-        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
-
-        //std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
-        //std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
-
-        std::vector<std::vector<Vertex>> vertices;
-        std::vector < std::vector<unsigned int>> indices;
-
-        for (int i = 0; i < vertices.size(); i++)
-        {
-            for (int j = 0; j < vertices[i].size(); j++)
-            {
-                glm::vec3& p = vertices[i][j].position;
-                glm::vec4 p4 = modelTr * glm::vec4(p.x, p.y, p.z, 1.0f);
-
-                minPoint = glm::min(glm::vec3(p4.x, p4.y, p4.z), minPoint);
-                maxPoint = glm::max(glm::vec3(p4.x, p4.y, p4.z), maxPoint);
-            }
-        }
-
-        dim.x = glm::abs(maxPoint.x - minPoint.x);
-        dim.y = glm::abs(maxPoint.y - minPoint.y);
-        dim.z = glm::abs(maxPoint.z - minPoint.z);
-
-        centerPoint = maxPoint - dim * 0.5f;
-
-        Box3D* box = new Box3D(centerPoint, dim * 0.5f, reinterpret_cast<void*>(e));
-    }
-
-       
-
-}
-
-
-
-// Sorts the list of objects based on the center point of the aabb olong the axis of greatest spread (the greatest dimension of the aabb)
-static void sortObjects(Box3D* bv, std::vector<Box3D*>& objects)
-{
-    if (bv)
-    {
-        if (bv->extents.x > bv->extents.y && bv->extents.x > bv->extents.z) // Split axis is X axis
-        {
-            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.x < b->center.x; });
-        }
-        else if (bv->extents.y > bv->extents.x && bv->extents.y > bv->extents.z) // Split axis is Y axis
-        {
-            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.y < b->center.y; });
-        }
-        else if (bv->extents.z > bv->extents.x && bv->extents.z > bv->extents.y) // Split axis is Z axis
-        {
-            std::sort(objects.begin(), objects.end(), [&](Box3D* a, Box3D* b) {return a->center.z < b->center.z; });
-        }
-    }
-}
 
 
 TreeNode* World::createBVH(std::vector<Box3D*>& objects, int depth)
@@ -694,11 +656,13 @@ TreeNode* World::createBVH(std::vector<Box3D*>& objects, int depth)
 
 }
 
-void World::testRayAgainstNode(Ray3D ray, TreeNode* node)
+
+bool World::testRayAgainstNode(Ray3D ray, TreeNode* node, int depth, glm::vec3* hitPos)
 {
     if (node)
     {
         Box3D* box = node->box;
+        
 
         if (node->box)
         {
@@ -709,15 +673,88 @@ void World::testRayAgainstNode(Ray3D ray, TreeNode* node)
                 if (node->type == NodeType::LEAF)
                 {
                     minDepth = glm::min(minDepth, t);
+
+                    *hitPos = box->center;
+
+                    return true;
                 }
                 else if (node->type == NodeType::INTERNAL)
                 {
-                    testRayAgainstNode(ray, node->left);
-                    testRayAgainstNode(ray, node->right);
+                    bool hitLeft = testRayAgainstNode(ray, node->left, depth++, hitPos);
+                    bool hitRight = testRayAgainstNode(ray, node->right, depth, hitPos);
+
+                    return hitLeft || hitRight;
                 }
             }
+            else
+            {
+                return false;
+            }
+
         }
         else
-            return;
+            return false;
     }
+    return false;
+}
+
+void World::createAABBComponents()
+{
+    objList.clear();
+
+    triangleCount = 0;
+    for (Entity* e : entities)
+    {
+        TransformComponent* transformComp = e->getComponent<TransformComponent>();
+        RenderComponent* renderComp = e->getComponent<RenderComponent>();
+        PlayerComponent* playerComp = e->getComponent<PlayerComponent>();
+
+        if (!renderComp)
+            continue;
+
+        glm::mat4 modelTr = glm::mat4(1.0f);
+        modelTr = glm::translate(modelTr, transformComp->pos);
+        modelTr = glm::rotate(modelTr, (transformComp->angle), transformComp->rot);
+        modelTr = glm::scale(modelTr, transformComp->scl * glm::vec3(0.01f, 0.01f, 0.01f));
+
+        glm::vec3 minPoint = { 9999.0f, 9999.0f, 9999.0f };
+        glm::vec3 maxPoint = { -9999.0f, -9999.0f, -9999.0f };
+        glm::vec3 centerPoint = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 dim = { 0.0f, 0.0f, 0.0f };
+
+        //std::vector<std::vector<Vertex>>& vertices = renderComp->mesh->vertices;
+        //std::vector < std::vector<unsigned int>>& indices = renderComp->mesh->indices;
+
+        std::vector<std::vector<Vertex>> vertices;
+        std::vector < std::vector<unsigned int>> indices;
+
+        for (int i = 0; i < vertices.size(); i++)
+        {
+            for (int j = 0; j < vertices[i].size(); j++)
+            {
+                glm::vec3& p = vertices[i][j].position;
+                glm::vec4 p4 = modelTr * glm::vec4(p.x, p.y, p.z, 1.0f);
+
+                minPoint = glm::min(glm::vec3(p4.x, p4.y, p4.z), minPoint);
+                maxPoint = glm::max(glm::vec3(p4.x, p4.y, p4.z), maxPoint);
+            }
+        }
+
+        dim.x = glm::abs(maxPoint.x - minPoint.x);
+        dim.y = glm::abs(maxPoint.y - minPoint.y);
+        dim.z = glm::abs(maxPoint.z - minPoint.z);
+
+        centerPoint = maxPoint - dim * 0.5f;
+
+        Box3D* box = new Box3D(centerPoint, dim * 0.5f, reinterpret_cast<void*>(e));
+
+        AABBComponent* aabb = new AABBComponent();
+
+        if (aabb)
+        {
+            aabb->box = box;
+            e->addComponent(aabb);
+        }
+    }
+
 }

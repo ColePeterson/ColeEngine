@@ -64,7 +64,7 @@ int main()
     // Handles player movement 
     PlayerSystem playerSystem(engine);
     
-    //WorldEditSystem worldEditSystem(engine);
+   // WorldEditSystem worldEditSystem(engine);
     
 
     while (!glfwWindowShouldClose(platform.window)) 
@@ -83,10 +83,14 @@ int main()
         // Update render system (draws renderable entities)
         renderSystem.update(engine);
         
-        //worldEditSystem.update(engine);
+       // worldEditSystem.update(engine);
+
+        engine.selectedEntityPrevious = engine.selectedEntity;
 
         // Update Imgui stuff
         ui.draw();
+
+        
         
         glfwSwapBuffers(platform.window);
     }

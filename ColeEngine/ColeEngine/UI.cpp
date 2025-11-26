@@ -33,6 +33,9 @@ void UI::sceneLighting_draw()
         ImGui::Text(" %.1f FPS;  %.3f ms/frame;", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
         ImGui::NewLine();
 
+        ImGui::Text(" %.2f minDepth; %.2f dist;", engine.getWorld().minDepth, engine.getWorld().dist);
+        ImGui::NewLine();
+
         ImGui::SliderFloat("Light X: ", &engine.getWorld().lightPos.x, -70.0f, 70.0f);
         ImGui::SliderFloat("Light Y: ", &engine.getWorld().lightPos.y, -70.0f, 70.0f);
         ImGui::SliderFloat("Light Z: ", &engine.getWorld().lightPos.z, -70.0f, 70.0f);
@@ -43,8 +46,8 @@ void UI::sceneLighting_draw()
 
         ImGui::Checkbox("Basic shading", &engine.debug.basicShading);
 
-        ImGui::SliderFloat("Shader debug float 1: ", &engine.debug.float1, 1.0f, 10.0f);
-        ImGui::SliderFloat("Shader debug float 2: ", &engine.debug.float2, 1.0f, 1000.0f);
+        ImGui::SliderFloat("Shader debug float 1: ", &engine.debug.float1, 0.0f, 26.0f);
+        ImGui::SliderFloat("Shader debug float 2: ", &engine.debug.float2, 1.0f, 300.0f);
 
         engine.getWorld().ambientColor.x = sceneLighting.ambientColor[0];
         engine.getWorld().ambientColor.y = sceneLighting.ambientColor[1];
@@ -109,6 +112,29 @@ void UI::sceneBrowser_draw()
                     ImGui::SetItemDefaultFocus();
                 }
             }
+
+            unsigned int nParticleSystems = engine.getWorld().particles.size();
+            std::vector<ParticleEmitter*>& p = engine.getWorld().particles;
+
+            // For every point light in world
+            for (unsigned int i = 0; i < nParticleSystems; i++)
+            {
+                const bool is_selected = (sceneBrowser.selected == i + nEntities + nLights);
+
+                // Select new selected entity
+                if (ImGui::Selectable(p[i]->getName().c_str(), is_selected))
+                {
+                    sceneBrowser.selected = i + nEntities + nLights;
+                    engine.selectedEntity = reinterpret_cast<ParticleEmitter*>(p[i]);
+                    engine.onSelect = true;
+                }
+
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
             ImGui::EndListBox();
         }
 
@@ -126,9 +152,9 @@ void UI::transformComp_draw()
     TransformComponent* transform = engine.selectedEntity->getComponent<TransformComponent>();
 
     ImGui::Text("Position");
-    if (ImGui::SliderFloat("pos X: ", &transform->pos.x, -100.0f, 100.0f)) engine.onSelect = true;
-    if (ImGui::SliderFloat("pos Y: ", &transform->pos.y, -100.0f, 100.0f)) engine.onSelect = true;
-    if (ImGui::SliderFloat("pos Z: ", &transform->pos.z, -100.0f, 100.0f)) engine.onSelect = true;
+    if (ImGui::SliderFloat("pos X: ", &transform->pos.x, -30.0f, 30.0f)) engine.onSelect = true;
+    if (ImGui::SliderFloat("pos Y: ", &transform->pos.y, -30.0f, 30.0f)) engine.onSelect = true;
+    if (ImGui::SliderFloat("pos Z: ", &transform->pos.z, -30.0f, 30.0f)) engine.onSelect = true;
 
     ImGui::Text("Rotation");
     if (ImGui::SliderFloat("rot X: ", &transform->rot.x, 0.0f, 1.0f)) engine.onSelect = true;
@@ -147,11 +173,11 @@ void UI::transformComp_draw()
 
 void UI::pointLightComp_draw()
 {
+    PointLightComponent* pnt = engine.selectedEntity->getComponent<PointLightComponent>();
+
     TextCentered("Point Light Component");
     ImGui::NewLine();
 
-    PointLightComponent* pnt = engine.selectedEntity->getComponent<PointLightComponent>();
-    
     ImGui::ColorEdit3("Color", reinterpret_cast<float*>(&pnt->color));
 
     ImGui::NewLine();
@@ -167,6 +193,45 @@ void UI::pointLightComp_draw()
     ImGui::SliderFloat("Far Plane", &pnt->farPlane, 10.1f, 200.0f);
 
 }
+
+void UI::terrainComp_draw()
+{
+    TerrainComponent* terrain = engine.selectedEntity->getComponent<TerrainComponent>();
+    RenderComponent* render = engine.selectedEntity->getComponent<RenderComponent>();
+    MeshTerrain* mesh = reinterpret_cast<MeshTerrain*>(render->mesh);
+
+    if (!mesh)
+        return;
+
+    TextCentered("Terrain Component");
+    ImGui::NewLine();
+
+    if (ImGui::SliderFloat("Size X: ", &terrain->size, 0.0f, 3000.0f))
+    {
+        mesh->updateTerrain(terrain->size, terrain->resolution, terrain->height);
+    }
+
+   
+    if(ImGui::SliderInt("Resolution: ", &terrain->resolution, 4, 256))
+    {
+        mesh->updateTerrain(terrain->size, terrain->resolution, terrain->height);
+    }
+
+
+    if (ImGui::SliderFloat("Height: ", &terrain->height, 0.0f, 10.0f))
+    {
+        mesh->updateTerrain(terrain->size, terrain->resolution, terrain->height);
+    }
+
+    ImGui::NewLine();
+
+    if (ImGui::Button("Generate", ImVec2(200, 80)))
+    {
+        mesh->updateTerrain(terrain->size, terrain->resolution, terrain->height);
+    }
+
+}
+
 
 // Edit selected render component
 void UI::renderComp_draw()
@@ -357,6 +422,12 @@ void UI::componentTab_draw()
                     case ComponentType::PointLightComponent:
                         pointLightComp_draw();
                         break;
+
+                    case ComponentType::TerrainComponent:
+                        terrainComp_draw();
+                        break;
+
+
                     }
                 }
             }

@@ -17,7 +17,7 @@
 class Entity;
 
 
-using Color3 = glm::vec3;
+using Color4 = glm::vec4;
 
 
 
@@ -103,7 +103,7 @@ public:
 	std::unordered_map<std::string, int> vInt; // Integer parameters
 	std::unordered_map<std::string, Vec3Param> vVec3; // Vec3 parameters
 	std::unordered_map<std::string, Vec2Param> vVec2; // Vec2 parameters
-	std::unordered_map<std::string, Color3> vColor; // Color parameters
+	std::unordered_map<std::string, Color4> vColor; // Color parameters
 
 	std::vector<Entity*> entityRefs; // References to all entities using this material
 

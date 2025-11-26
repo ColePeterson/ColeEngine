@@ -4,19 +4,20 @@ precision highp float;
 
 layout (location = 0) out vec4 gVertex;
 layout (location = 1) out vec3 gNormal;
-layout (location = 2) out vec3 gAlbedo;
+layout (location = 2) out vec4 gAlbedo;
 layout (location = 3) out vec4 gSpecular;
-
+layout (location = 4) out vec4 gView;
 
 in vec2 texCoord;
 in vec3 worldPos;
 in vec3 normalVec;
+in vec3 eyeVec;
 in vec3 tanVec;
 in float depth;
 
-struct Color3
+struct Color4
 {
-    vec3 c;
+    vec4 c;
 };
 
 uniform sampler2D textureDiffuse;
@@ -26,8 +27,8 @@ uniform sampler2D textureSpecular;
 
 uniform vec2 textureScale;
 
-uniform Color3 diffuse;
-uniform Color3 specular;
+uniform Color4 diffuse;
+uniform Color4 specular;
 
 uniform float shininess;
 uniform float reflectivity;
@@ -72,14 +73,17 @@ void main()
 
     if(hasDiffuseTexture)
     {
-        gAlbedo = diffuse.c * texture(textureDiffuse, uv).rgb;
+        gAlbedo.xyz = diffuse.c.xyz * texture(textureDiffuse, uv).xyz;
+        gAlbedo.w = diffuse.c.w;
     }
     else
     {
-        gAlbedo = diffuse.c;
+        gAlbedo.xyz = diffuse.c.xyz;
+        gAlbedo.w = diffuse.c.w;
     }
-   // gAlbedo = vec3(0., 1., 0.);
+
+    gView = vec4(eyeVec, 1.0);
     
-    gSpecular = vec4(specular.c, shininess);
+    gSpecular = vec4(specular.c.xyz, shininess);
 
 }  

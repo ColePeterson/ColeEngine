@@ -26,7 +26,8 @@ enum class ComponentType
 	RenderComponent,
 	PlayerComponent,
 	PointLightComponent,
-	AABBComponent
+	AABBComponent,
+	TerrainComponent
 };
 
 enum class RenderID
@@ -104,6 +105,8 @@ public:
 	Shape* mesh2 = nullptr;
 	Mesh* mesh = nullptr;
 
+	bool isSky = false;
+
 	// Object material slots
 	std::vector<Material*> materials;
 
@@ -123,11 +126,19 @@ public:
 
 	float tilt = 0.0f;
 	float spin = 0.0f;
+	float orbitDist = 30.0f;
 
 	float walkSpeed = 5.0f;
 	float runSpeed = 70.0f;
 
+	float panSpeed = 0.04f;
+	float zoomSpeed = 4.0f;
+	float orbitSpeed = 0.0055f;
+
 	glm::vec3 eye = { 0.0f, 0.0f, 4.0f };
+
+	// Orbit look at
+	glm::vec3 center = { 0.0f, 0.0f, 0.0f };
 
 };
 
@@ -171,7 +182,18 @@ public:
 
 };
 
+class TerrainComponent : public Component
+{
+public:
+	COMPONENT_COMMON_IMPL(TerrainComponent);
 
+	float size = 10.0f;
+
+	int resolution = 2;
+
+	float height = 1.0f;
+
+};
 
 /*
 RenderComponent& operator=(Entity* _entity)

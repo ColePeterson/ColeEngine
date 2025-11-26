@@ -60,6 +60,12 @@ void Texture::unbind()
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+
+
+
+
+
+
 bool Texture::loadEmbedded(aiTexel* textureData, unsigned int _width, unsigned int _height)
 {
 
@@ -117,9 +123,42 @@ bool Texture::loadEmbedded(aiTexel* textureData, unsigned int _width, unsigned i
 }
 
 
+std::vector<unsigned char> Texture::getHeightMapData(std::string path, int* hWidth, int* hHeight)
+{
+	int nChannels = 0;
+
+	unsigned char* data;
+
+	data = stbi_load(path.c_str(), hWidth, hHeight, &nChannels, 0);
+
+	if (data)
+	{
+		std::vector<unsigned char> out;
+
+		unsigned int size = ((*hWidth) * (*hHeight)) * 3;
+
+		for (unsigned int i = 0; i < size; i += 3)
+		{
+			if (&data[i])
+			{
+				out.push_back(data[i]);
+			}
+		}
+
+		stbi_image_free(data);
+
+		return out;
+	}
+	else
+	{
+		std::cout << "Error loading heightmap\n";
+
+		return std::vector<unsigned char>();
+	}
+}
+
 bool Texture::load(std::string path)
 {
-	//stbi_set_flip_vertically_on_load(true);
 	data = stbi_load(path.c_str(), &width, &height, &channels, 0);
 
 	if (data != nullptr)

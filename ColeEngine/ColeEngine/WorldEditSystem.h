@@ -20,7 +20,7 @@ public:
 
 private:
 
-	void mouseSelectEntity(Engine& engine);
+	void getMouseWorldPosition(Engine& engine);
 
 };
 

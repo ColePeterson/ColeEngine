@@ -29,9 +29,10 @@ public:
 
 
 	double mouseX, mouseY, dx, dy;
-	bool mouseLeft, mouseRight, mouseLeftRelease, mouseRightRelease;
-	bool s_down, w_down, d_down, a_down, q_down, lshift_down;
-
+	bool mouseLeft, mouseRight, mouseLeftRelease, mouseRightRelease, middleDown, middleRelease;
+	bool s_down, w_down, d_down, a_down, q_down, f_down, lshift_down;
+	
+	float scroll_dx;
 private:
 	void updateMouse();
 	void updateKeyboard();
