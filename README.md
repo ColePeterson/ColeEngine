@@ -1,6 +1,8 @@
 # Renderer playground
 A 3D real-time renderer playground from scratch with C++ and OpenGL. (WIP)
 
+<img width="2161" height="1229" alt="Image" src="https://github.com/user-attachments/assets/81cfb115-3b43-4dc3-a2b3-69aa8f8484a2" />
+
 Short demo: https://youtu.be/XLscjFdszHw
 
 # Features:
