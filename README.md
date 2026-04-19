@@ -1,6 +1,8 @@
 # Renderer playground
 A 3D real-time renderer playground from scratch with C++ and OpenGL. (WIP)
 
+Short demo: https://youtu.be/XLscjFdszHw
+
 # Features:
 
 - Entity component systems
